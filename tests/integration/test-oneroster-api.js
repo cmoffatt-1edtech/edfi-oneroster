@@ -7,7 +7,7 @@ require('dotenv').config();
 const http = require('http');
 
 class OneRosterAPITester {
-    constructor(baseUrl = 'http://localhost:3000') {
+    constructor(baseUrl = process.env.BASE_URL || 'http://localhost:3000') {
         this.baseUrl = baseUrl;
         this.apiPath = '/ims/oneroster/rostering/v1p2';
         this.testResults = {};
@@ -217,12 +217,54 @@ class OneRosterAPITester {
     }
 
     /**
+     * Query health endpoint to show database info
+     */
+    async showDatabaseInfo() {
+        try {
+            console.log('Checking API health and database connection...');
+            const healthUrl = `${this.baseUrl}/health-check`;
+            
+            const healthResponse = await new Promise((resolve, reject) => {
+                const req = http.get(healthUrl, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        try {
+                            const jsonData = JSON.parse(data);
+                            resolve({ statusCode: res.statusCode, data: jsonData });
+                        } catch (e) {
+                            resolve({ statusCode: res.statusCode, data: { raw: data } });
+                        }
+                    });
+                });
+                req.on('error', reject);
+                req.setTimeout(5000, () => reject(new Error('Health check timeout')));
+            });
+
+            if (healthResponse.statusCode === 200) {
+                console.log(`✅ API Status: ${healthResponse.data.status || 'Unknown'}`);
+                console.log(`✅ Database Type: ${healthResponse.data.database || 'Unknown'}`);
+                console.log(`✅ Database Abstraction: ${healthResponse.data.abstraction || 'Unknown'}`);
+                console.log(`✅ Environment: ${process.env.DB_TYPE || 'Unknown'} (from env)`);
+            } else {
+                console.log(`⚠️  Health check returned status ${healthResponse.statusCode}`);
+            }
+        } catch (error) {
+            console.log(`⚠️  Could not get health info: ${error.message}`);
+        }
+        console.log('');
+    }
+
+    /**
      * Run comprehensive API tests
      */
     async runTests() {
         console.log('OneRoster API Integration Test Suite');
         console.log('====================================');
         console.log(`Testing API at: ${this.baseUrl}${this.apiPath}`);
+        console.log('');
+        
+        await this.showDatabaseInfo();
 
         const startTime = Date.now();
         let totalTests = 0;

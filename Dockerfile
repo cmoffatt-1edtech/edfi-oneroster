@@ -1,6 +1,7 @@
-FROM node:22-alpine
+FROM node:18-slim
 WORKDIR /app
-RUN adduser -D appuser
+RUN apt-get update && apt-get install -y postgresql-client wget && rm -rf /var/lib/apt/lists/*
+RUN useradd -m appuser
 RUN chown appuser /app
 COPY --chown=appuser . .
 USER appuser
