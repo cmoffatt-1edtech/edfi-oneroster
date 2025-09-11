@@ -44,8 +44,10 @@ app.use('/swagger.json', (req, res) => {
 });
 
 app.use('/', (req, res) => {
+  const dbType = process.env.DB_TYPE === 'mssql' ? 'MSSQLSERVER' : 'POSTGRESQL';
   res.status(200).json({
     "version": "1.0.0",
+    "database": dbType,
     "urls": {
       "openApiMetadata": `${req.protocol}://${req.get('host')}/swagger.json`,
       "swaggerUI": `${req.protocol}://${req.get('host')}/docs`,

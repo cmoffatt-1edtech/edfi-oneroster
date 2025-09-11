@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const oneRosterOneController = require('../controllers/oneRosterOneController');
-const oneRosterManyController = require('../controllers/oneRosterManyController');
+const { oneRosterOneController, oneRosterManyController } = require('../controllers/controllerFactory');
 
 router.get('/rostering/v1p2/academicSessions/:id', oneRosterOneController.academicSessions);
 router.get('/rostering/v1p2/gradingPeriods/:id', oneRosterOneController.gradingPeriods);
