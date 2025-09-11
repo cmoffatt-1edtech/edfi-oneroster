@@ -5,18 +5,102 @@
 
 require('dotenv').config();
 const http = require('http');
+const https = require('https');
+const { URLSearchParams } = require('url');
 
 class OneRosterAPITester {
     constructor(baseUrl = process.env.BASE_URL || 'http://localhost:3000') {
         this.baseUrl = baseUrl;
         this.apiPath = '/ims/oneroster/rostering/v1p2';
         this.testResults = {};
+        this.accessToken = null;
     }
 
     /**
-     * Make HTTP GET request
+     * Get OAuth2 access token using client credentials
+     */
+    async getAccessToken() {
+        if (this.accessToken) {
+            return this.accessToken;
+        }
+
+        const issuerBaseUrl = process.env.OAUTH2_ISSUERBASEURL;
+        const audience = process.env.OAUTH2_AUDIENCE;
+        const clientId = process.env.OAUTH2_CLIENT_ID;
+        const clientSecret = process.env.OAUTH2_CLIENT_SECRET;
+
+        if (!issuerBaseUrl || !audience || !clientId || !clientSecret) {
+            throw new Error('Missing OAuth2 configuration in environment variables');
+        }
+
+        const tokenUrl = `${issuerBaseUrl}oauth/token`;
+        const postData = new URLSearchParams({
+            grant_type: 'client_credentials',
+            client_id: clientId,
+            client_secret: clientSecret,
+            audience: audience
+        }).toString();
+
+        return new Promise((resolve, reject) => {
+            const options = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Length': Buffer.byteLength(postData)
+                }
+            };
+
+            const req = https.request(tokenUrl, options, (res) => {
+                let data = '';
+                
+                res.on('data', chunk => {
+                    data += chunk;
+                });
+                
+                res.on('end', () => {
+                    try {
+                        const tokenResponse = JSON.parse(data);
+                        
+                        if (res.statusCode === 200 && tokenResponse.access_token) {
+                            this.accessToken = tokenResponse.access_token;
+                            console.log('✅ OAuth2 token acquired successfully');
+                            resolve(this.accessToken);
+                        } else {
+                            throw new Error(`Token request failed: ${res.statusCode} - ${data}`);
+                        }
+                    } catch (error) {
+                        reject(new Error(`Failed to parse token response: ${error.message}`));
+                    }
+                });
+            });
+            
+            req.on('error', (error) => {
+                reject(new Error(`Token request error: ${error.message}`));
+            });
+            
+            req.setTimeout(10000, () => {
+                req.destroy();
+                reject(new Error('Token request timeout'));
+            });
+            
+            req.write(postData);
+            req.end();
+        });
+    }
+
+    /**
+     * Make HTTP GET request with OAuth2 authentication
      */
     async makeRequest(endpoint, queryParams = {}) {
+        // Get access token if we don't have one
+        if (!this.accessToken) {
+            try {
+                await this.getAccessToken();
+            } catch (error) {
+                throw new Error(`Authentication failed: ${error.message}`);
+            }
+        }
+
         const url = new URL(`${this.baseUrl}${this.apiPath}${endpoint}`);
         
         // Add query parameters
@@ -29,7 +113,14 @@ class OneRosterAPITester {
         return new Promise((resolve, reject) => {
             const startTime = Date.now();
             
-            const req = http.get(url.toString(), (res) => {
+            const options = {
+                headers: {
+                    'Authorization': `Bearer ${this.accessToken}`,
+                    'Accept': 'application/json'
+                }
+            };
+            
+            const req = http.get(url.toString(), options, (res) => {
                 let data = '';
                 
                 res.on('data', chunk => {
@@ -225,7 +316,13 @@ class OneRosterAPITester {
             const healthUrl = `${this.baseUrl}/health-check`;
             
             const healthResponse = await new Promise((resolve, reject) => {
-                const req = http.get(healthUrl, (res) => {
+                const options = {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                };
+                
+                const req = http.get(healthUrl, options, (res) => {
                     let data = '';
                     res.on('data', chunk => data += chunk);
                     res.on('end', () => {
@@ -263,6 +360,16 @@ class OneRosterAPITester {
         console.log('====================================');
         console.log(`Testing API at: ${this.baseUrl}${this.apiPath}`);
         console.log('');
+        
+        // Acquire OAuth2 token first
+        try {
+            console.log('Acquiring OAuth2 access token...');
+            await this.getAccessToken();
+            console.log('');
+        } catch (error) {
+            console.log(`❌ Failed to acquire access token: ${error.message}`);
+            return false;
+        }
         
         await this.showDatabaseInfo();
 
