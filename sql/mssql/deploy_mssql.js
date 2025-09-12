@@ -4,10 +4,13 @@
  * MSSQL OneRoster Schema Deployment Script
  * 
  * This script deploys the complete OneRoster 1.2 schema to Microsoft SQL Server.
+ * It supports both Ed-Fi Data Standard 4 and 5 databases.
  * It replaces the non-functional deploy_all_mssql.sql which uses unsupported :r includes.
  * 
  * Usage:
- *   node sql/mssql/deploy.js
+ *   node sql/mssql/deploy_mssql.js           # Defaults to DS5
+ *   node sql/mssql/deploy_mssql.js --ds4     # Deploy for DS4
+ *   node sql/mssql/deploy_mssql.js --ds5     # Deploy for DS5
  *   
  * Requirements:
  *   - Node.js with mssql package
@@ -23,6 +26,10 @@ const { spawn } = require('child_process');
 
 // Load environment variables from project root
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+
+// Parse command line arguments
+const args = process.argv.slice(2);
+const dataStandard = args.includes('--ds4') ? 'DS4' : 'DS5';
 
 // MSSQL Connection Configuration
 const config = {
@@ -40,7 +47,7 @@ const config = {
     requestTimeout: 120000  // Extended timeout for large deployments
 };
 
-// SQL files in deployment order (matches original deploy_all_mssql.sql)
+// SQL files in deployment order (MSSQL version)
 const deploymentOrder = [
     // Phase 1: Foundation
     '00_setup_mssql.sql',
@@ -54,7 +61,7 @@ const deploymentOrder = [
     'courses_mssql.sql',
     'classes_mssql.sql',
     'demographics_mssql.sql',
-    'users_mssql.sql',
+    dataStandard === 'DS4' ? 'users_ds4_mssql.sql' : 'users_mssql.sql',  // DS4/DS5 specific
     'enrollments_mssql.sql',
     
     // Phase 3: Orchestration and Optimization
@@ -69,6 +76,7 @@ function printHeader() {
     console.log('========================================');
     console.log('OneRoster 1.2 MSSQL Deployment');
     console.log('========================================');
+    console.log(`Data Standard: ${dataStandard}`);
     console.log(`Target Server: ${config.server}`);
     console.log(`Target Database: ${config.database}`);
     console.log(`User: ${config.user}`);
@@ -111,6 +119,38 @@ async function checkPrerequisites(pool) {
         
         if (edfiCheck.recordset[0].SchemaCount > 0) {
             console.log('✅ Ed-Fi schema detected');
+            
+            // Detect actual data standard version
+            const ds4Check = await pool.request().query(`
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = 'edfi' AND TABLE_NAME = 'Parent'
+                ) THEN 1 ELSE 0 END as IsDS4
+            `);
+            
+            const ds5Check = await pool.request().query(`
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = 'edfi' AND TABLE_NAME = 'Contact'
+                ) THEN 1 ELSE 0 END as IsDS5
+            `);
+            
+            const isDS4 = ds4Check.recordset[0].IsDS4 === 1;
+            const isDS5 = ds5Check.recordset[0].IsDS5 === 1;
+            
+            if (isDS4 && !isDS5) {
+                console.log('✅ Detected Ed-Fi Data Standard 4 database');
+                if (dataStandard !== 'DS4') {
+                    console.log('⚠️  WARNING: Database is DS4 but deploying DS5 scripts. Use --ds4 flag.');
+                }
+            } else if (!isDS4 && isDS5) {
+                console.log('✅ Detected Ed-Fi Data Standard 5 database');
+                if (dataStandard !== 'DS5') {
+                    console.log('⚠️  WARNING: Database is DS5 but deploying DS4 scripts. Use --ds5 flag.');
+                }
+            } else {
+                console.log('⚠️  WARNING: Could not determine Ed-Fi Data Standard version');
+            }
         } else {
             console.log('⚠️  WARNING: No "edfi" schema found. Ensure this is an Ed-Fi ODS database.');
         }
@@ -367,6 +407,7 @@ async function deployMSSQLSchema() {
         console.log('\\n========================================');
         if (totalErrors === 0) {
             console.log('🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!');
+            console.log(`📊 Data Standard: ${dataStandard}`);
         } else if (totalSuccess > 0) {
             console.log(`⚠️  DEPLOYMENT COMPLETED WITH WARNINGS (${totalErrors} files had errors)`);
         } else {

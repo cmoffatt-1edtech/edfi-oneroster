@@ -33,7 +33,7 @@ The MSSQL implementation uses:
 - `13_sql_agent_job.sql` - SQL Server Agent job setup
 
 ### Deployment
-- `deploy.js` - Node.js automated deployment script (**Recommended**)
+- `deploy_mssql.js` - Node.js automated deployment script (**Recommended**)
 - `README.md` - This documentation file
 
 ## Prerequisites
@@ -52,7 +52,7 @@ The MSSQL implementation uses:
 ```bash
 # Ensure your .env file has MSSQL connection settings
 # Then run the automated deployment script
-node sql/mssql/deploy.js
+node sql/mssql/deploy_mssql.js
 ```
 
 The Node.js deployment script provides:
@@ -292,7 +292,7 @@ ORDER BY avg_duration DESC;
 
 ## Deployment Script Details
 
-The `deploy.js` script provides enterprise-grade deployment capabilities:
+The `deploy_mssql.js` script provides enterprise-grade deployment capabilities:
 
 ### Features
 - **Prerequisites Checking**: Validates SQL Server version (2016+), Ed-Fi schema presence, and SQL Server Agent status
