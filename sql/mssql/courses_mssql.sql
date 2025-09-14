@@ -1,12 +1,52 @@
 -- =============================================
--- MS SQL Server Refresh Procedure for Courses
--- Refreshes the oneroster12.courses table
+-- MS SQL Server Setup for Courses
+-- Creates table, indexes, and refresh procedure
 -- Based on PostgreSQL courses materialized view
 -- =============================================
 
 -- Set required options for Ed-Fi database operations
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
+GO
+
+-- =============================================
+-- Drop and Create Courses Table
+-- =============================================
+IF OBJECT_ID('oneroster12.courses', 'U') IS NOT NULL 
+    DROP TABLE oneroster12.courses;
+GO
+
+CREATE TABLE oneroster12.courses (
+    sourcedId NVARCHAR(64) NOT NULL PRIMARY KEY,
+    status NVARCHAR(16) NOT NULL,
+    dateLastModified DATETIME2 NULL,
+    schoolYear NVARCHAR(MAX) NULL, -- JSON object
+    title NVARCHAR(256) NOT NULL,
+    courseCode NVARCHAR(64) NULL,
+    grades NVARCHAR(MAX) NULL, -- JSON array or comma-separated
+    subjects NVARCHAR(MAX) NULL, -- JSON array or comma-separated
+    org NVARCHAR(MAX) NULL, -- JSON
+    subjectCodes NVARCHAR(MAX) NULL, -- JSON array or comma-separated
+    resources NVARCHAR(MAX) NULL, -- JSON array
+    metadata NVARCHAR(MAX) NULL -- JSON
+);
+GO
+
+-- =============================================
+-- Create Indexes for Courses
+-- =============================================
+-- Primary access patterns: by sourcedId, by courseCode, by school org
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.courses') AND name = 'IX_courses_coursecode')
+BEGIN
+    CREATE INDEX IX_courses_coursecode ON oneroster12.courses (courseCode) WHERE courseCode IS NOT NULL;
+    PRINT '  ✓ Created IX_courses_coursecode on courses';
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.courses') AND name = 'IX_courses_status')
+BEGIN
+    CREATE INDEX IX_courses_status ON oneroster12.courses (status) INCLUDE (title, courseCode);
+    PRINT '  ✓ Created IX_courses_status on courses';
+END;
 GO
 
 IF OBJECT_ID('oneroster12.sp_refresh_courses', 'P') IS NOT NULL

@@ -18,19 +18,17 @@ The MSSQL implementation uses:
 - `02_descriptorMappings_mssql.sql` - Ed-Fi to OneRoster descriptor mappings
 
 ### Core Implementation (Phase 2)
-- `03_tables_mssql.sql` - All 7 OneRoster table definitions
-- `04_academic_sessions_mssql.sql` - Academic sessions refresh procedure
-- `05_orgs_mssql.sql` - Organizations refresh procedure
-- `06_courses_mssql.sql` - Courses refresh procedure
-- `07_classes_mssql.sql` - Classes refresh procedure
-- `08_demographics_mssql.sql` - Demographics refresh procedure
-- `09_users_mssql.sql` - Users refresh procedure (most complex)
-- `10_enrollments_mssql.sql` - Enrollments refresh procedure
+- `academic_sessions_mssql.sql` - Academic sessions table, indexes, and refresh procedure
+- `orgs_mssql.sql` - Organizations table, indexes, and refresh procedure
+- `courses_mssql.sql` - Courses table, indexes, and refresh procedure
+- `classes_mssql.sql` - Classes table, indexes, and refresh procedure
+- `demographics_mssql.sql` - Demographics table, indexes, and refresh procedure
+- `users_mssql.sql` - Users table, indexes, and refresh procedure (most complex)
+- `enrollments_mssql.sql` - Enrollments table, indexes, and refresh procedure
 
 ### Orchestration (Phase 3)
-- `11_master_refresh_mssql.sql` - Master orchestration procedures
-- `12_indexes_mssql.sql` - Performance optimization indexes
-- `13_sql_agent_job.sql` - SQL Server Agent job setup
+- `master_refresh_mssql.sql` - Master orchestration procedures
+- `sql_agent_job.sql` - SQL Server Agent job setup
 
 ### Deployment
 - `deploy.js` - Node.js automated deployment script (**Recommended**)
@@ -66,8 +64,8 @@ The Node.js deployment script provides:
 
 If you prefer manual execution, run each SQL file in this order:
 1. Foundation: `00_setup_mssql.sql`, `01_descriptors_mssql.sql`, `02_descriptorMappings_mssql.sql`
-2. Core: `03_tables_mssql.sql`, `academic_sessions_mssql.sql`, `orgs_mssql.sql`, `courses_mssql.sql`, `classes_mssql.sql`, `demographics_mssql.sql`, `users_mssql.sql`, `enrollments_mssql.sql`
-3. Optimization: `master_refresh_mssql.sql`, `indexes_mssql.sql`, `sql_agent_job.sql`
+2. Core (includes tables and indexes): `academic_sessions_mssql.sql`, `orgs_mssql.sql`, `courses_mssql.sql`, `classes_mssql.sql`, `demographics_mssql.sql`, `users_mssql.sql`, `enrollments_mssql.sql`
+3. Orchestration: `master_refresh_mssql.sql`, `sql_agent_job.sql`
 
 ### 2. Populate Data Tables
 
@@ -298,8 +296,8 @@ The `deploy.js` script provides enterprise-grade deployment capabilities:
 - **Prerequisites Checking**: Validates SQL Server version (2016+), Ed-Fi schema presence, and SQL Server Agent status
 - **Phased Deployment**: 
   - Phase 1: Foundation (schema, descriptors, mappings)
-  - Phase 2: Core Tables and Procedures (7 OneRoster tables + refresh procedures) 
-  - Phase 3: Orchestration and Optimization (master procedures, indexes, jobs)
+  - Phase 2: Core Tables, Indexes, and Procedures (7 OneRoster entity scripts with integrated DDL)
+  - Phase 3: Orchestration (master procedures and jobs)
 - **Intelligent Batch Processing**: Properly splits SQL files on GO statements and filters empty batches
 - **Comprehensive Error Handling**: Continues deployment even if some batches fail, with detailed reporting
 - **Post-Deployment Verification**: Confirms all objects were created successfully

@@ -1,11 +1,43 @@
 -- =============================================
--- MS SQL Server Refresh Procedure for Academic Sessions
--- Refreshes the oneroster12.academicsessions table
+-- MS SQL Server Setup for Academic Sessions
+-- Creates table, indexes, and refresh procedure
 -- =============================================
 
 -- Set required options for Ed-Fi database operations
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
+GO
+
+-- =============================================
+-- Drop and Create Academic Sessions Table
+-- =============================================
+IF OBJECT_ID('oneroster12.academicsessions', 'U') IS NOT NULL 
+    DROP TABLE oneroster12.academicsessions;
+GO
+
+CREATE TABLE oneroster12.academicsessions (
+    sourcedId NVARCHAR(64) NOT NULL PRIMARY KEY,
+    status NVARCHAR(16) NOT NULL,
+    dateLastModified DATETIME2 NULL,
+    title NVARCHAR(256) NOT NULL,
+    type NVARCHAR(32) NOT NULL,
+    startDate NVARCHAR(32) NULL,
+    endDate NVARCHAR(32) NULL,
+    parent NVARCHAR(MAX) NULL, -- JSON
+    schoolYear NVARCHAR(16) NULL,
+    metadata NVARCHAR(MAX) NULL -- JSON
+);
+GO
+
+-- =============================================
+-- Create Indexes for Academic Sessions
+-- =============================================
+-- Primary access patterns: by sourcedId, by type, by parent, by date ranges
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.academicsessions') AND name = 'IX_academicsessions_type_dates')
+BEGIN
+    CREATE INDEX IX_academicsessions_type_dates ON oneroster12.academicsessions (type, startDate, endDate) INCLUDE (title);
+    PRINT '  ✓ Created IX_academicsessions_type_dates on academicsessions';
+END;
 GO
 
 IF OBJECT_ID('oneroster12.sp_refresh_academicsessions', 'P') IS NOT NULL

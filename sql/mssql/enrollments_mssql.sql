@@ -1,12 +1,61 @@
 -- =============================================
--- MS SQL Server Refresh Procedure for Enrollments
--- Refreshes the oneroster12.enrollments table
+-- MS SQL Server Setup for Enrollments
+-- Creates table, indexes, and refresh procedure
 -- Based on PostgreSQL enrollments materialized view
 -- =============================================
 
 -- Set required options for Ed-Fi database operations
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
+GO
+
+-- =============================================
+-- Drop and Create Enrollments Table
+-- =============================================
+IF OBJECT_ID('oneroster12.enrollments', 'U') IS NOT NULL 
+    DROP TABLE oneroster12.enrollments;
+GO
+
+CREATE TABLE oneroster12.enrollments (
+    sourcedId NVARCHAR(64) NOT NULL PRIMARY KEY,
+    status NVARCHAR(16) NOT NULL,
+    dateLastModified DATETIME2 NULL,
+    class NVARCHAR(MAX) NULL, -- JSON
+    school NVARCHAR(MAX) NULL, -- JSON
+    [user] NVARCHAR(MAX) NULL, -- JSON (note: 'user' is escaped as it's a reserved word)
+    role NVARCHAR(32) NULL,
+    [primary] BIT NULL, -- 'primary' is a reserved word
+    beginDate NVARCHAR(32) NULL,
+    endDate NVARCHAR(32) NULL,
+    metadata NVARCHAR(MAX) NULL -- JSON
+);
+GO
+
+-- =============================================
+-- Create Indexes for Enrollments
+-- =============================================
+-- Primary access patterns: by sourcedId, by class, by user, by role, by status, by dates
+-- Note: Cannot index 'class' and 'user' columns as they are NVARCHAR(MAX) JSON types
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.enrollments') AND name = 'IX_enrollments_status_role')
+BEGIN
+    CREATE INDEX IX_enrollments_status_role ON oneroster12.enrollments (status, role);
+    PRINT '  ✓ Created IX_enrollments_status_role on enrollments';
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.enrollments') AND name = 'IX_enrollments_dates')
+BEGIN
+    CREATE INDEX IX_enrollments_dates ON oneroster12.enrollments (beginDate, endDate) 
+    WHERE beginDate IS NOT NULL;
+    PRINT '  ✓ Created IX_enrollments_dates on enrollments';
+END;
+
+-- API performance index for filtering
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.enrollments') AND name = 'IX_enrollments_api_status_filter')
+BEGIN
+    CREATE INDEX IX_enrollments_api_status_filter ON oneroster12.enrollments (status, dateLastModified) INCLUDE (role);
+    PRINT '  ✓ Created IX_enrollments_api_status_filter on enrollments';
+END;
 GO
 
 IF OBJECT_ID('oneroster12.sp_refresh_enrollments', 'P') IS NOT NULL

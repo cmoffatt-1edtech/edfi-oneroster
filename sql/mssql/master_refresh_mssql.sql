@@ -36,7 +36,7 @@ BEGIN
             SET @MinutesSinceRefresh = DATEDIFF(MINUTE, @LastRefresh, GETDATE());
             IF @MinutesSinceRefresh < 10
             BEGIN
-                PRINT CONCAT('Skipping refresh - completed ', @MinutesSinceRefresh, ' minutes ago. Use @ForceRefresh=1 to override.');
+                PRINT 'Skipping refresh - completed ' + CAST(@MinutesSinceRefresh AS NVARCHAR(10)) + ' minutes ago. Use @ForceRefresh=1 to override.';
                 RETURN;
             END
         END
@@ -48,7 +48,7 @@ BEGIN
     
     DECLARE @MasterHistoryID INT = SCOPE_IDENTITY();
     
-    PRINT CONCAT('=== OneRoster Master Refresh Started at ', FORMAT(@StartTime, 'yyyy-MM-dd HH:mm:ss'), ' ===');
+    PRINT '=== OneRoster Master Refresh Started at ' + FORMAT(@StartTime, 'yyyy-MM-dd HH:mm:ss') + ' ===';
     
     -- Define refresh order based on dependencies
     DECLARE refresh_cursor CURSOR FOR
@@ -69,26 +69,27 @@ BEGIN
     WHILE @@FETCH_STATUS = 0
     BEGIN
         DECLARE @ProcStartTime DATETIME2 = GETDATE();
-        DECLARE @ProcName NVARCHAR(128) = CONCAT('oneroster12.sp_refresh_', @CurrentTable);
+        DECLARE @ProcName NVARCHAR(128) = 'oneroster12.sp_refresh_' + @CurrentTable;
         DECLARE @ErrorMessage NVARCHAR(4000);
         
         BEGIN TRY
-            PRINT CONCAT('Refreshing ', @CurrentTable, '...');
+            PRINT 'Refreshing ' + @CurrentTable + '...';
             
             -- Execute the refresh procedure dynamically
-            EXEC (@ProcName);
+            DECLARE @SQL NVARCHAR(128) = 'EXEC ' + @ProcName;
+            EXEC sp_executesql @SQL;
             
             SET @SuccessCount = @SuccessCount + 1;
             
             DECLARE @ProcDuration INT = DATEDIFF(SECOND, @ProcStartTime, GETDATE());
-            PRINT CONCAT('✓ ', @CurrentTable, ' completed in ', @ProcDuration, ' seconds');
+            PRINT '✓ ' + @CurrentTable + ' completed in ' + CAST(@ProcDuration AS NVARCHAR(10)) + ' seconds';
             
         END TRY
         BEGIN CATCH
             SET @ErrorCount = @ErrorCount + 1;
             SET @ErrorMessage = ERROR_MESSAGE();
             
-            PRINT CONCAT('✗ Error refreshing ', @CurrentTable, ': ', @ErrorMessage);
+            PRINT '✗ Error refreshing ' + @CurrentTable + ': ' + @ErrorMessage;
             
             -- Log the error
             INSERT INTO oneroster12.refresh_errors 
@@ -115,7 +116,7 @@ BEGIN
             ELSE
             BEGIN
                 SET @SkippedCount = @SkippedCount + 1;
-                PRINT CONCAT('Continuing with next table due to @SkipOnError=1');
+                PRINT 'Continuing with next table due to @SkipOnError=1';
             END
         END CATCH
         
@@ -146,12 +147,12 @@ BEGIN
     
     -- Print summary
     PRINT '=== Master Refresh Summary ===';
-    PRINT CONCAT('Overall Status: ', @OverallStatus);
-    PRINT CONCAT('Total Duration: ', @TotalDuration, ' seconds');
-    PRINT CONCAT('Tables Succeeded: ', @SuccessCount);
-    PRINT CONCAT('Tables Failed: ', @ErrorCount);
-    PRINT CONCAT('Tables Skipped: ', @SkippedCount);
-    PRINT CONCAT('Completed at: ', FORMAT(@EndTime, 'yyyy-MM-dd HH:mm:ss'));
+    PRINT 'Overall Status: ' + @OverallStatus;
+    PRINT 'Total Duration: ' + CAST(@TotalDuration AS NVARCHAR(10)) + ' seconds';
+    PRINT 'Tables Succeeded: ' + CAST(@SuccessCount AS NVARCHAR(10));
+    PRINT 'Tables Failed: ' + CAST(@ErrorCount AS NVARCHAR(10));
+    PRINT 'Tables Skipped: ' + CAST(@SkippedCount AS NVARCHAR(10));
+    PRINT 'Completed at: ' + FORMAT(@EndTime, 'yyyy-MM-dd HH:mm:ss');
     
     -- Show current row counts
     PRINT '';
@@ -181,7 +182,7 @@ BEGIN
         ORDER BY error_date DESC;
     END
     
-    PRINT CONCAT('=== OneRoster Master Refresh Completed at ', FORMAT(@EndTime, 'yyyy-MM-dd HH:mm:ss'), ' ===');
+    PRINT '=== OneRoster Master Refresh Completed at ' + FORMAT(@EndTime, 'yyyy-MM-dd HH:mm:ss') + ' ===';
 END
 GO
 
@@ -198,7 +199,7 @@ BEGIN
     
     DECLARE @SinceDate DATETIME2 = DATEADD(DAY, -@DaysBack, GETDATE());
     
-    PRINT CONCAT('=== Refresh Status (Last ', @DaysBack, ' Days) ===');
+    PRINT '=== Refresh Status (Last ' + CAST(@DaysBack AS NVARCHAR(10)) + ' Days) ===';
     
     -- Recent refresh history
     SELECT 

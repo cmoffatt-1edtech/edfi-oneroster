@@ -1,12 +1,56 @@
 -- =============================================
--- MS SQL Server Refresh Procedure for Organizations
--- Refreshes the oneroster12.orgs table
+-- MS SQL Server Setup for Organizations
+-- Creates table, indexes, and refresh procedure
 -- Based on PostgreSQL orgs materialized view - FIXED MD5 GENERATION
 -- =============================================
 
 -- Set required options for Ed-Fi database operations
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
+GO
+
+-- =============================================
+-- Drop and Create Organizations Table
+-- =============================================
+IF OBJECT_ID('oneroster12.orgs', 'U') IS NOT NULL 
+    DROP TABLE oneroster12.orgs;
+GO
+
+CREATE TABLE oneroster12.orgs (
+    sourcedId NVARCHAR(64) NOT NULL PRIMARY KEY,
+    status NVARCHAR(16) NOT NULL,
+    dateLastModified DATETIME2 NULL,
+    name NVARCHAR(256) NOT NULL,
+    type NVARCHAR(32) NOT NULL,
+    identifier NVARCHAR(256) NULL,
+    parent NVARCHAR(MAX) NULL, -- JSON
+    children NVARCHAR(MAX) NULL, -- JSON array
+    metadata NVARCHAR(MAX) NULL -- JSON
+);
+GO
+
+-- =============================================
+-- Create Indexes for Organizations
+-- =============================================
+-- Primary access patterns: by sourcedId, by type, by parent
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.orgs') AND name = 'IX_orgs_type_status')
+BEGIN
+    CREATE INDEX IX_orgs_type_status ON oneroster12.orgs (type, status) INCLUDE (name, identifier);
+    PRINT '  ✓ Created IX_orgs_type_status on orgs';
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.orgs') AND name = 'IX_orgs_identifier')
+BEGIN
+    CREATE INDEX IX_orgs_identifier ON oneroster12.orgs (identifier) WHERE identifier IS NOT NULL;
+    PRINT '  ✓ Created IX_orgs_identifier on orgs';
+END;
+
+-- Date-based filtering for incremental sync
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.orgs') AND name = 'IX_orgs_lastmodified')
+BEGIN
+    CREATE INDEX IX_orgs_lastmodified ON oneroster12.orgs (dateLastModified) WHERE dateLastModified IS NOT NULL;
+    PRINT '  ✓ Created IX_orgs_lastmodified on orgs';
+END;
 GO
 
 IF OBJECT_ID('oneroster12.sp_refresh_orgs', 'P') IS NOT NULL

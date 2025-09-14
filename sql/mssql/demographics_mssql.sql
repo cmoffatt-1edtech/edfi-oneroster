@@ -1,12 +1,60 @@
 -- =============================================
--- MS SQL Server Refresh Procedure for Demographics
--- Refreshes the oneroster12.demographics table
+-- MS SQL Server Setup for Demographics
+-- Creates table, indexes, and refresh procedure
 -- Based on PostgreSQL demographics materialized view
 -- =============================================
 
 -- Set required options for Ed-Fi database operations
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
+GO
+
+-- =============================================
+-- Drop and Create Demographics Table
+-- =============================================
+IF OBJECT_ID('oneroster12.demographics', 'U') IS NOT NULL 
+    DROP TABLE oneroster12.demographics;
+GO
+
+CREATE TABLE oneroster12.demographics (
+    sourcedId NVARCHAR(64) NOT NULL PRIMARY KEY,
+    status NVARCHAR(16) NOT NULL,
+    dateLastModified DATETIME2 NULL,
+    birthDate NVARCHAR(32) NULL,
+    sex NVARCHAR(32) NULL,
+    americanIndianOrAlaskaNative BIT NULL,
+    asian BIT NULL,
+    blackOrAfricanAmerican BIT NULL,
+    nativeHawaiianOrOtherPacificIslander BIT NULL,
+    white BIT NULL,
+    demographicRaceTwoOrMoreRaces BIT NULL,
+    hispanicOrLatinoEthnicity BIT NULL,
+    countryOfBirthCode NVARCHAR(8) NULL,
+    stateOfBirthAbbreviation NVARCHAR(8) NULL,
+    cityOfBirth NVARCHAR(256) NULL,
+    publicSchoolResidenceStatus NVARCHAR(256) NULL,
+    metadata NVARCHAR(MAX) NULL -- JSON
+);
+GO
+
+-- =============================================
+-- Create Indexes for Demographics
+-- =============================================  
+-- Primary access patterns: by sourcedId, by birthDate, by sex, by race fields
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.demographics') AND name = 'IX_demographics_birthdate_sex')
+BEGIN
+    CREATE INDEX IX_demographics_birthdate_sex ON oneroster12.demographics (birthDate, sex) WHERE birthDate IS NOT NULL;
+    PRINT '  ✓ Created IX_demographics_birthdate_sex on demographics';
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.demographics') AND name = 'IX_demographics_race_flags')
+BEGIN
+    CREATE INDEX IX_demographics_race_flags ON oneroster12.demographics (
+        americanIndianOrAlaskaNative, asian, blackOrAfricanAmerican, 
+        nativeHawaiianOrOtherPacificIslander, white, hispanicOrLatinoEthnicity
+    ) WHERE americanIndianOrAlaskaNative = 1;
+    PRINT '  ✓ Created IX_demographics_race_flags on demographics';
+END;
 GO
 
 IF OBJECT_ID('oneroster12.sp_refresh_demographics', 'P') IS NOT NULL

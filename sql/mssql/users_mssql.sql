@@ -1,3 +1,89 @@
+-- =============================================
+-- MS SQL Server Setup for Users
+-- Creates table, indexes, and refresh procedure
+-- =============================================
+
+-- Set required options for Ed-Fi database operations
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+
+-- =============================================
+-- Drop and Create Users Table
+-- =============================================
+IF OBJECT_ID('oneroster12.users', 'U') IS NOT NULL 
+    DROP TABLE oneroster12.users;
+GO
+
+CREATE TABLE oneroster12.users (
+    sourcedId NVARCHAR(64) NOT NULL PRIMARY KEY,
+    status NVARCHAR(16) NOT NULL,
+    dateLastModified DATETIME2 NULL,
+    enabledUser BIT NOT NULL DEFAULT 1,
+    username NVARCHAR(256) NULL,
+    userIds NVARCHAR(MAX) NULL, -- JSON array
+    givenName NVARCHAR(256) NULL,
+    familyName NVARCHAR(256) NULL,
+    middleName NVARCHAR(256) NULL,
+    identifier NVARCHAR(256) NULL,
+    email NVARCHAR(256) NULL,
+    sms NVARCHAR(32) NULL,
+    phone NVARCHAR(32) NULL,
+    agents NVARCHAR(MAX) NULL, -- JSON array
+    orgs NVARCHAR(MAX) NULL, -- JSON array
+    grades NVARCHAR(MAX) NULL, -- JSON array or comma-separated
+    password NVARCHAR(256) NULL,
+    userMasterIdentifier NVARCHAR(256) NULL,
+    resourceId NVARCHAR(256) NULL,
+    preferredFirstName NVARCHAR(256) NULL,
+    preferredMiddleName NVARCHAR(256) NULL,
+    preferredLastName NVARCHAR(256) NULL,
+    primaryOrg NVARCHAR(MAX) NULL, -- JSON
+    pronouns NVARCHAR(64) NULL,
+    userProfiles NVARCHAR(MAX) NULL, -- JSON array (for OneRoster compatibility)
+    agentSourceIds NVARCHAR(MAX) NULL, -- text field (for OneRoster compatibility)
+    metadata NVARCHAR(MAX) NULL, -- JSON
+    role NVARCHAR(32) NULL,
+    roles NVARCHAR(MAX) NULL -- JSON array
+);
+GO
+
+-- =============================================
+-- Create Indexes for Users
+-- =============================================
+-- Primary access patterns: by sourcedId, by role, by identifier, by username, by orgs
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.users') AND name = 'IX_users_role_status')
+BEGIN
+    CREATE INDEX IX_users_role_status ON oneroster12.users (role, status) INCLUDE (givenName, familyName, username);
+    PRINT '  ✓ Created IX_users_role_status on users';
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.users') AND name = 'IX_users_identifier')
+BEGIN
+    CREATE INDEX IX_users_identifier ON oneroster12.users (identifier) WHERE identifier IS NOT NULL;
+    PRINT '  ✓ Created IX_users_identifier on users';  
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.users') AND name = 'IX_users_username')
+BEGIN
+    CREATE INDEX IX_users_username ON oneroster12.users (username) WHERE username IS NOT NULL;
+    PRINT '  ✓ Created IX_users_username on users';
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.users') AND name = 'IX_users_email')
+BEGIN
+    CREATE INDEX IX_users_email ON oneroster12.users (email) WHERE email IS NOT NULL;
+    PRINT '  ✓ Created IX_users_email on users';
+END;
+
+-- Date-based filtering for incremental sync
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.users') AND name = 'IX_users_lastmodified')
+BEGIN  
+    CREATE INDEX IX_users_lastmodified ON oneroster12.users (dateLastModified) WHERE dateLastModified IS NOT NULL;
+    PRINT '  ✓ Created IX_users_lastmodified on users';
+END;
+GO
+
 -- Corrected Users procedure with proper table structure
 CREATE OR ALTER PROCEDURE oneroster12.sp_refresh_users
 AS

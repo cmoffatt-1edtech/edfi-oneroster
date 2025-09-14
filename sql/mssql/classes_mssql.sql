@@ -1,12 +1,58 @@
 -- =============================================
--- MS SQL Server Refresh Procedure for Classes
--- Refreshes the oneroster12.classes table
+-- MS SQL Server Setup for Classes
+-- Creates table, indexes, and refresh procedure
 -- Based on PostgreSQL classes materialized view
 -- =============================================
 
 -- Set required options for Ed-Fi database operations
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
+GO
+
+-- =============================================
+-- Drop and Create Classes Table
+-- =============================================
+IF OBJECT_ID('oneroster12.classes', 'U') IS NOT NULL 
+    DROP TABLE oneroster12.classes;
+GO
+
+CREATE TABLE oneroster12.classes (
+    sourcedId NVARCHAR(64) NOT NULL PRIMARY KEY,
+    status NVARCHAR(16) NOT NULL,
+    dateLastModified DATETIME2 NULL,
+    title NVARCHAR(256) NOT NULL,
+    classCode NVARCHAR(64) NULL,
+    classType NVARCHAR(32) NULL,
+    location NVARCHAR(256) NULL,
+    grades NVARCHAR(MAX) NULL, -- JSON array or comma-separated
+    subjects NVARCHAR(MAX) NULL, -- JSON array or comma-separated
+    course NVARCHAR(MAX) NULL, -- JSON
+    school NVARCHAR(MAX) NULL, -- JSON
+    terms NVARCHAR(MAX) NULL, -- JSON array
+    subjectCodes NVARCHAR(MAX) NULL, -- JSON array or comma-separated
+    periods NVARCHAR(MAX) NULL, -- comma-separated
+    resources NVARCHAR(MAX) NULL, -- JSON array
+    metadata NVARCHAR(MAX) NULL -- JSON
+);
+GO
+
+-- =============================================
+-- Create Indexes for Classes
+-- =============================================
+-- Primary access patterns: by sourcedId, by course, by school, by term, by status
+-- Alternative index using only indexable columns (course, school, terms are JSON)
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.classes') AND name = 'IX_classes_status_type')
+BEGIN
+    CREATE INDEX IX_classes_status_type ON oneroster12.classes (status, classType) INCLUDE (title, classCode);
+    PRINT '  ✓ Created IX_classes_status_type on classes';
+END;
+
+-- API performance index for filtering
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID('oneroster12.classes') AND name = 'IX_classes_api_status_filter')
+BEGIN
+    CREATE INDEX IX_classes_api_status_filter ON oneroster12.classes (status, dateLastModified) INCLUDE (title, classCode);
+    PRINT '  ✓ Created IX_classes_api_status_filter on classes';
+END;
 GO
 
 IF OBJECT_ID('oneroster12.sp_refresh_classes', 'P') IS NOT NULL
