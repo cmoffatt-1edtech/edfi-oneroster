@@ -136,7 +136,7 @@ BEGIN
         )
         INSERT INTO #staging_demographics
         SELECT 
-            LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(student.Id AS VARCHAR(50))), 2)) AS sourcedId,
+            LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST('STU-' + student.StudentUniqueId AS VARCHAR(50))), 2)) AS sourcedId,
             'active' AS status,
             CASE 
                 WHEN sh.edorg_lmdate > student.LastModifiedDate THEN sh.edorg_lmdate
