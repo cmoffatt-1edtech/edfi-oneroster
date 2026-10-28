@@ -208,19 +208,21 @@ services:
       retries: 3
       start_period: 40s
 
+# Database volume names include the engine and data standard so that switching
+# stacks (e.g. 5.2.0 -> 6.1.0, or pgsql -> mssql) never reuses another stack's data.
 volumes:
   vol-db-admin:
     driver: local
-    name: vol-db-admin
+    name: vol-db-admin-mssql-${ONEROSTER_ARTIFACT_VERSION:-5.2.0}
   vol-db-ods:
     driver: local
-    name: vol-db-ods
+    name: vol-db-ods-mssql-${ONEROSTER_ARTIFACT_VERSION:-5.2.0}
   vol-db-ods-logs:
     driver: local
-    name: vol-db-ods-logs
+    name: vol-db-ods-logs-mssql-${ONEROSTER_ARTIFACT_VERSION:-5.2.0}
   vol-db-admin-logs:
     driver: local
-    name: vol-db-admin-logs
+    name: vol-db-admin-logs-mssql-${ONEROSTER_ARTIFACT_VERSION:-5.2.0}
 
 networks:
   edfioneroster-network:
