@@ -133,13 +133,15 @@ networks:
   edfioneroster-network:
     external: true
 
+# Database volume names include the engine and data standard so that switching
+# stacks (e.g. 5.2.0 -> 6.1.0, or pgsql -> mssql) never reuses another stack's data.
 volumes:
   vol-db-ods:
     driver: local
-    name: vol-db-ods
+    name: vol-db-ods-pgsql-${ONEROSTER_ARTIFACT_VERSION:-5.2.0}
   vol-db-admin:
     driver: local
-    name: vol-db-admin
+    name: vol-db-admin-pgsql-${ONEROSTER_ARTIFACT_VERSION:-5.2.0}
   pgadmin-data:
     driver: local
     name: pgadmin-data

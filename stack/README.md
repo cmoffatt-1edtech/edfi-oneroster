@@ -77,8 +77,15 @@ pwsh ./stop-services.ps1 -EnvFile <path> [-Purge] [-DbType <Postgres|Mssql>] [-I
 - Runs `docker compose down --remove-orphans` across every compose file listed
   below using the provided env file.
 - `-Purge` adds `--volumes --rmi all`, removing database volumes, named volumes,
-  and images created by the stack (helpful when switching data standards or
-  templates).
+  and images created by the stack (helpful when switching templates).
+- Database volumes are named per engine and data standard (for example
+  `vol-db-ods-pgsql-5.2.0`, `vol-db-admin-mssql-6.1.0`), from
+  `ONEROSTER_ARTIFACT_VERSION` in the env file. Switching data standards or
+  engines therefore starts from fresh databases instead of reusing another
+  stack's data, and each stack's data is kept until you purge it. Volumes from
+  older versions of these compose files (`vol-db-ods`, `vol-db-admin`, and the
+  `-tenant1`/`-tenant2` variants) are no longer used and can be removed with
+  `docker volume rm`.
 - `-EnvFile` is required and mirrors the flag in `start-services.ps1` so you
   can stop the exact stack you started.
 - `-DbType` and `-InstallType` must match the stack you started so the script
