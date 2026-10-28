@@ -11,6 +11,8 @@
 import { RECOMMENDED_MAX_PAGE_SIZE, parseMaxPageSize } from './paginationLimits.js';
 import { VALID_LEVELS as VALID_LOG_LEVELS, getLogger } from './logger.js';
 import { isSwaggerUiEnabled, isOpenApiMetadataEnabled } from '../config/api-docs.js';
+import { parsePlatform, PLATFORMS } from '../config/platform.js';
+import { parseRouteQualifierSegments } from '../config/route-context-config.js';
 
 const logger = getLogger('EnvValidator');
 
@@ -20,6 +22,15 @@ const logger = getLogger('EnvValidator');
  */
 export function validateEnvironmentVariables() {
   const errors = [];
+
+  // PLATFORM: If set, must be "ods" or "dms", matched case-insensitively. If unset, the service
+  // targets the Ed-Fi ODS/API. An unrecognised value is checked as "ods" below so every other
+  // error is still reported.
+  const parsedPlatform = parsePlatform(process.env.PLATFORM);
+  if (!parsedPlatform) {
+    errors.push(`PLATFORM must be one of: ${Object.values(PLATFORMS).join(', ')} if set`);
+  }
+  const isOdsPlatform = (parsedPlatform || PLATFORMS.ODS) === PLATFORMS.ODS;
 
   // PORT: If set, must be a valid integer in range 1-65535. If unset, server.js will default to 3000.
   if (process.env.PORT) {
@@ -84,7 +95,8 @@ export function validateEnvironmentVariables() {
   const tenantsConfigFromModule = isMultiTenancyEnabled && (process.env.TENANTS_CONFIG_MODULE || '').trim() !== '';
 
   // CONNECTION_CONFIG must be valid JSON with adminConnection if MULTITENANCY_ENABLED is false
-  if (!isMultiTenancyEnabled) {
+  // (ODS/API only: it points at EdFi_Admin)
+  if (isOdsPlatform && !isMultiTenancyEnabled) {
     if (!process.env.CONNECTION_CONFIG) {
       errors.push('CONNECTION_CONFIG must not be empty when MULTITENANCY_ENABLED is false');
     } else {
@@ -132,14 +144,15 @@ export function validateEnvironmentVariables() {
     errors.push('OAUTH2_TOKENSIGNINGALG must be "RS256"');
   }
 
-  // OAUTH2_PUBLIC_KEY_PEM must not be empty
-  if (!process.env.OAUTH2_PUBLIC_KEY_PEM) {
+  // OAUTH2_PUBLIC_KEY_PEM must not be empty (ODS/API only: tokens are verified with its PEM key)
+  if (isOdsPlatform && !process.env.OAUTH2_PUBLIC_KEY_PEM) {
     errors.push('OAUTH2_PUBLIC_KEY_PEM must not be empty');
   }
 
   // TENANTS_CONNECTION_CONFIG must be valid JSON mapping tenant IDs to objects with adminConnection
-  // when MULTITENANCY_ENABLED is true and TENANTS_CONFIG_MODULE is not set (plugin module skips this)
-  if (isMultiTenancyEnabled && !tenantsConfigFromModule) {
+  // when MULTITENANCY_ENABLED is true and TENANTS_CONFIG_MODULE is not set (plugin module skips this).
+  // ODS/API only: it points at each tenant's EdFi_Admin.
+  if (isOdsPlatform && isMultiTenancyEnabled && !tenantsConfigFromModule) {
     if (!process.env.TENANTS_CONNECTION_CONFIG) {
       errors.push('TENANTS_CONNECTION_CONFIG must not be empty when MULTITENANCY_ENABLED is true and TENANTS_CONFIG_MODULE is not set');
     } else {
@@ -179,8 +192,8 @@ export function validateEnvironmentVariables() {
     }
   }
 
-  // ODS_INSTANCES format validation (single-tenant, if provided)
-  if (!isMultiTenancyEnabled && process.env.ODS_INSTANCES) {
+  // ODS_INSTANCES format validation (ODS/API single-tenant, if provided)
+  if (isOdsPlatform && !isMultiTenancyEnabled && process.env.ODS_INSTANCES) {
     try {
       const odsInstances = JSON.parse(process.env.ODS_INSTANCES);
       if (typeof odsInstances !== 'object' || odsInstances === null || Array.isArray(odsInstances) || Object.keys(odsInstances).length === 0) {
@@ -202,6 +215,22 @@ export function validateEnvironmentVariables() {
     } catch (e) {
       errors.push('ODS_INSTANCES must be valid JSON');
     }
+  }
+
+  // Route context: ODS_CONTEXT_ROUTE_TEMPLATE belongs to the ODS/API and ROUTE_QUALIFIER_SEGMENTS
+  // to DMS. Rejecting the other platform's variable avoids a setting that silently does nothing.
+  if (isOdsPlatform) {
+    if ((process.env.ROUTE_QUALIFIER_SEGMENTS || '').trim() !== '') {
+      errors.push('ROUTE_QUALIFIER_SEGMENTS applies to PLATFORM=dms; use ODS_CONTEXT_ROUTE_TEMPLATE with PLATFORM=ods');
+    }
+  } else {
+    if ((process.env.ODS_CONTEXT_ROUTE_TEMPLATE || '').trim() !== '') {
+      errors.push('ODS_CONTEXT_ROUTE_TEMPLATE applies to PLATFORM=ods; use ROUTE_QUALIFIER_SEGMENTS with PLATFORM=dms');
+    }
+    errors.push(...parseRouteQualifierSegments(process.env.ROUTE_QUALIFIER_SEGMENTS).errors);
+
+    // Remove when the DMS token verifier and data-store provider exist
+    errors.push('PLATFORM=dms is not supported yet: DMS token verification and data-store resolution are not implemented');
   }
 
   const isHttpsEnabled = process.env.ENABLE_HTTPS === 'true';

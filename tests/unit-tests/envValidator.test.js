@@ -30,6 +30,9 @@ describe('envValidator', () => {
     delete process.env.DB_REQUEST_TIMEOUT;
     delete process.env.ENABLE_SWAGGER_UI;
     delete process.env.ENABLE_OPEN_API_METADATA;
+    delete process.env.PLATFORM;
+    delete process.env.ROUTE_QUALIFIER_SEGMENTS;
+    delete process.env.ODS_CONTEXT_ROUTE_TEMPLATE;
 
     // Import the module
     const envValidator = await import('../../src/utils/envValidator.js');
@@ -48,6 +51,70 @@ describe('envValidator', () => {
       const result = validateEnvironmentVariables();
       expect(result.isValid).toBe(true);
       expect(result.errors).toHaveLength(0);
+    });
+
+    describe('PLATFORM validation', () => {
+      const DMS_NOT_READY = 'PLATFORM=dms is not supported yet: DMS token verification and data-store resolution are not implemented';
+
+      test.each(['ods', 'ODS', ' ods '])('accepts PLATFORM=%p as the ODS/API', (value) => {
+        process.env.PLATFORM = value;
+        const result = validateEnvironmentVariables();
+        expect(result.isValid).toBe(true);
+      });
+
+      test('rejects an unrecognised PLATFORM and still checks the ODS/API settings', () => {
+        process.env.PLATFORM = 'v8';
+        delete process.env.OAUTH2_PUBLIC_KEY_PEM;
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toContain('PLATFORM must be one of: ods, dms if set');
+        expect(result.errors).toContain('OAUTH2_PUBLIC_KEY_PEM must not be empty');
+      });
+
+      test('rejects ROUTE_QUALIFIER_SEGMENTS on the ODS/API', () => {
+        process.env.ROUTE_QUALIFIER_SEGMENTS = 'schoolYear';
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([
+          'ROUTE_QUALIFIER_SEGMENTS applies to PLATFORM=dms; use ODS_CONTEXT_ROUTE_TEMPLATE with PLATFORM=ods'
+        ]);
+      });
+
+      test('does not require the EdFi_Admin or PEM settings on DMS', () => {
+        process.env.PLATFORM = 'dms';
+        delete process.env.CONNECTION_CONFIG;
+        delete process.env.OAUTH2_PUBLIC_KEY_PEM;
+        process.env.ODS_INSTANCES = 'not json';
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([DMS_NOT_READY]);
+      });
+
+      test('does not require TENANTS_CONNECTION_CONFIG on multi-tenant DMS', () => {
+        process.env.PLATFORM = 'dms';
+        process.env.MULTITENANCY_ENABLED = 'true';
+        delete process.env.TENANTS_CONNECTION_CONFIG;
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([DMS_NOT_READY]);
+      });
+
+      test('rejects ODS_CONTEXT_ROUTE_TEMPLATE and invalid qualifier segments on DMS', () => {
+        process.env.PLATFORM = 'dms';
+        process.env.ODS_CONTEXT_ROUTE_TEMPLATE = '{schoolYearFromRoute:int}';
+        process.env.ROUTE_QUALIFIER_SEGMENTS = 'districtId,school-year';
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([
+          'ODS_CONTEXT_ROUTE_TEMPLATE applies to PLATFORM=ods; use ROUTE_QUALIFIER_SEGMENTS with PLATFORM=dms',
+          'ROUTE_QUALIFIER_SEGMENTS contains names that are not valid route parameter names: school-year',
+          DMS_NOT_READY
+        ]);
+      });
+
+      test('still checks the shared settings on DMS', () => {
+        process.env.PLATFORM = 'dms';
+        delete process.env.PG_BOSS_CONNECTION_CONFIG;
+        delete process.env.OAUTH2_AUDIENCE;
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toContain('PG_BOSS_CONNECTION_CONFIG must not be empty when DB_TYPE is postgres');
+        expect(result.errors).toContain('OAUTH2_AUDIENCE must not be empty');
+      });
     });
 
     describe('PORT validation', () => {

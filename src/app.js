@@ -6,11 +6,13 @@
 import express from 'express';
 import cors from 'cors';
 import { auth } from 'express-oauth2-jwt-bearer';
-import { jwtVerifyWithPem } from './middleware/jwtVerifyWithPem.js';
+import { createJwtCheck } from './middleware/jwtCheck.js';
+import { createTokenVerifier } from './platform/token-verifier.js';
 import { extractTenantMiddleware } from './middleware/tenantMiddleware.js';
 import { validateOdsInstanceFlow } from './middleware/odsInstanceValidationMiddleware.js';
 import { isMultiTenancyEnabled } from './config/multi-tenancy-config.js';
-import { getOdsContextConfig, buildRoutePattern } from './config/ods-context-config.js';
+import { buildRoutePattern } from './config/ods-context-config.js';
+import { getRouteContextConfig } from './config/route-context-config.js';
 import { isSwaggerUiEnabled, isSwaggerUiConfigured, isOpenApiMetadataEnabled } from './config/api-docs.js';
 import oneRosterRoutes from './routes/oneRoster.js';
 import discoveryRoutes from './routes/discovery.js';
@@ -69,11 +71,8 @@ if (!process.env.OAUTH2_AUDIENCE || !process.env.OAUTH2_ISSUERBASEURL) {
   throw new Error('OAUTH2_AUDIENCE and OAUTH2_ISSUERBASEURL are required to start the server.');
 }
 
-jwtCheck = jwtVerifyWithPem(
-  process.env.OAUTH2_PUBLIC_KEY_PEM,
-  process.env.OAUTH2_AUDIENCE,
-  process.env.OAUTH2_ISSUERBASEURL
-);
+// Token verification for the configured PLATFORM (PEM public key on the ODS/API)
+jwtCheck = createJwtCheck(createTokenVerifier());
 
 const app = express();
 
@@ -103,8 +102,9 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Build dynamic route pattern for OneRoster API based on multi-tenancy and context config
+// (ODS_CONTEXT_ROUTE_TEMPLATE on the ODS/API, ROUTE_QUALIFIER_SEGMENTS on DMS)
 const multiTenancyEnabled = isMultiTenancyEnabled();
-const contextConfig = getOdsContextConfig();
+const contextConfig = getRouteContextConfig();
 const routePrefix = buildRoutePattern(multiTenancyEnabled, contextConfig);
 
 const swaggerUiEnabled = isSwaggerUiEnabled();

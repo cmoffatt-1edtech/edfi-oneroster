@@ -5,7 +5,10 @@
 
 import { isMultiTenancyEnabled, getTenantsConfig } from '../config/multi-tenancy-config.js';
 import { getOdsContextConfig } from '../config/ods-context-config.js';
+import { odsClaimsProfile } from '../platform/claims-profile.js';
 import { getLogger } from '../utils/logger.js';
+
+// ODS/API request flow: tenant and ODS instance come from ODS/API token claims.
 
 const logger = getLogger('OdsInstanceValidation');
 
@@ -13,16 +16,7 @@ const logger = getLogger('OdsInstanceValidation');
  * Parse odsInstances from JWT payload
  */
 function parseOdsInstances(payload) {
-  if (!payload?.odsInstances) return [];
-
-  try {
-    // odsInstances is always a JSON string in the fixed JWT structure
-    const parsed = JSON.parse(payload.odsInstances);
-    return parsed.OdsInstances || [];
-  } catch (error) {
-    logger.warn(`Failed to parse odsInstances JSON: ${error.message}`);
-    return [];
-  }
+  return odsClaimsProfile.getOdsInstances(payload);
 }
 
 /**
@@ -31,7 +25,7 @@ function parseOdsInstances(payload) {
  */
 function validateTenantId(req, res, next) {
   const tenantIdFromRoute = req.tenantId?.toLowerCase();
-  const tenantIdFromJwt = req.auth?.payload?.tenantId?.toLowerCase();
+  const tenantIdFromJwt = odsClaimsProfile.getTenantId(req.auth?.payload)?.toLowerCase();
 
   if (!tenantIdFromRoute) {
     if (isMultiTenancyEnabled()) {

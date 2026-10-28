@@ -8,6 +8,8 @@
  * Validates OAuth2 scopes and education organization access
  */
 
+import { getClaimsProfile } from '../platform/claims-profile.js';
+
 const ROSTER_SCOPES = {
     FULL: 'https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly',
     CORE: 'https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly',
@@ -15,26 +17,10 @@ const ROSTER_SCOPES = {
 };
 
 /**
- * Parse token scopes as discrete values.
- * Accepts OAuth2 "scope" as a space-delimited string or array of strings.
+ * Token scopes as discrete values, read through the platform's claims profile.
  */
 function getTokenScopes(req) {
-    const rawScope = req.auth?.payload?.scope;
-
-    if (typeof rawScope === 'string') {
-        return new Set(rawScope.split(/\s+/).filter(Boolean));
-    }
-
-    if (Array.isArray(rawScope)) {
-        const normalizedScopes = rawScope
-            .filter((value) => typeof value === 'string')
-            .flatMap((value) => value.split(/\s+/))
-            .filter(Boolean);
-
-        return new Set(normalizedScopes);
-    }
-
-    return new Set();
+    return getClaimsProfile().getScopes(req.auth?.payload);
 }
 
 /**
@@ -80,15 +66,7 @@ function validateScope(req, endpoint) {
  * @returns {Array<string>} Array of education organization IDs
  */
 function getEducationOrgIds(req) {
-    if (!req.auth?.payload) {
-        return [];
-    }
-
-    // Extract education org IDs from token claims
-    // Adjust the claim name based on your OAuth2 provider's token structure
-    const orgIds = req.auth.payload.educationOrganizationId || [];
-
-    return Array.isArray(orgIds) ? orgIds : [orgIds];
+    return getClaimsProfile().getEducationOrganizationIds(req.auth?.payload);
 }
 
 /**

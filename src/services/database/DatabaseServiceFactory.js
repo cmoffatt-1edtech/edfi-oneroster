@@ -1,8 +1,7 @@
 import OneRosterQueryService from './OneRosterQueryService.js';
 import MSSQLQueryService from './MSSQLQueryService.js';
 import { knexManager } from '../../config/knex-factory.js';
-import { getAdminConnectionString } from '../../config/multi-tenancy-config.js';
-import { odsInstanceService } from './OdsInstanceService.js';
+import { getDataStoreProvider } from '../../platform/data-store-provider.js';
 import { getLogger } from '../../utils/logger.js';
 
 const logger = getLogger('DatabaseServiceFactory');
@@ -32,20 +31,15 @@ class DatabaseServiceFactory {
         let knexInstance;
 
         if (odsInstanceId) {
-          // Two-level database resolution
-          // Step 1: Get EdFi_Admin connection string (tenant-specific or default)
-          const adminConnectionString = getAdminConnectionString(tenantId, dbType);
-          logger.debug(`Resolving ODS connection via EdFi_Admin for OdsInstanceId: ${odsInstanceId}`);
-
-          // Step 2: Resolve ODS connection string from EdFi_Admin database (or external config)
-          const odsConnectionString = await odsInstanceService.resolveOdsConnectionString({
-            adminConnectionString,
-            dbType,
-            odsInstanceId,
-            tenantId
+          // Resolve the connection string through the platform's data-store provider
+          // (EdFi_Admin or external config on the ODS/API)
+          const odsConnectionString = await getDataStoreProvider().resolveConnectionString({
+            tenantId,
+            dataStoreId: odsInstanceId,
+            dbType
           });
 
-          // Step 3: Create Knex instance with ODS connection using flow-specific cache key
+          // Create Knex instance with the resolved connection using flow-specific cache key
           knexInstance = knexManager.createOdsInstance(dbType, odsConnectionString, odsInstanceId, cacheKey);
         } else {
           throw new Error('OdsInstanceId is required to resolve an ODS database connection.');

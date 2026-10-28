@@ -6,6 +6,7 @@ Read-only microservice serving the OneRoster 1.2 rostering API over an Ed-Fi ODS
 - `server.js` — entry: dotenv → `envValidator.validateAndExit()` → dynamic-imports `app.js`/cron/services. HTTPS + graceful shutdown.
 - `src/app.js` — Express wiring: CORS, rate limit, dynamic route prefix (tenant/context), then `jwtCheck → extractTenant → validateOdsInstanceFlow → oneRosterRoutes`.
 - Flow: `src/routes/` → `controllers/unified/oneRosterController.js` → `services/database/*QueryService.js` (knex against the `oneroster12` schema/views in the ODS).
+- `PLATFORM` (`ods` default, `dms` in development) selects the per-platform seams in `src/platform/`: claims profile, token verifier, auth object map, data-store provider. Platform-specific code goes there, not into shared middleware or query code. DMS port run notes: `docs/design/dms-port-run-notes.md`.
 - `standard/<version>/artifacts/{mssql,pgsql}/core/*.sql` build the `oneroster12` views; deployed via `standard/deploy-{mssql,pgsql}.js`. Edit per-engine for API. Keep mssql/pgsql in sync. Mapping rules/nuances per view: `docs/design/oneroster-view-mappings.md`.
 
 ## Multi-tenancy

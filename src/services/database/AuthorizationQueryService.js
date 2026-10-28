@@ -4,30 +4,15 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { getLogger } from '../../utils/logger.js';
+import { ODS_AUTH_OBJECT_MAP } from '../../platform/auth-object-map.js';
 
 /**
  * Authorization Query Service
- * Handles education organization-based filtering using Ed-Fi auth views
+ * Handles education organization-based filtering using Ed-Fi auth views. The auth object and
+ * person-key column names come from the platform's auth object map (src/platform/auth-object-map.js).
  */
 
 const logger = getLogger('AuthorizationQueryService');
-
-const AUTH_TABLES = {
-  orgToOrg: 'educationorganizationidtoeducationorganizationid',
-  orgToStudent: 'educationorganizationidtostudentusi',
-  orgToStaff: 'educationorganizationidtostaffusi',
-  orgToContact: 'educationorganizationidtocontactusi',
-  orgToParent: 'educationorganizationidtoparentusi'
-};
-
-const AUTH_COLUMNS = {
-  sourceOrgId: 'sourceeducationorganizationid',
-  targetOrgId: 'targeteducationorganizationid',
-  studentUsi: 'studentusi',
-  staffUsi: 'staffusi',
-  contactUsi: 'contactusi',
-  parentUsi: 'parentusi'
-};
 
 // Endpoints with a purpose-built authorization filter
 const AUTH_ENDPOINTS = {
@@ -50,11 +35,23 @@ const ORGS_TABLE = 'orgs';
 const ORGS_ORG_ID_COLUMN = 'educationOrganizationId';
 
 class AuthorizationQueryService {
-  constructor(knexInstance, schema = 'oneroster12', authSchema = 'auth') {
+  constructor(knexInstance, schema = 'oneroster12', authSchema = 'auth', authObjects = ODS_AUTH_OBJECT_MAP) {
     this.knex = knexInstance;
     this.schema = schema;
     this.authSchema = authSchema;
+    this.authObjects = authObjects;
     this.parentAuthMapping = null;
+  }
+
+  /**
+   * An auth object name for hand-written SQL. Lower-case names are written as they are, which
+   * resolves on both engines; mixed-case names are bound as identifiers so they are quoted.
+   * @returns {{ sql: string, bindings: string[] }}
+   */
+  rawIdentifier(name) {
+    return this.authObjects.caseSensitiveNames
+      ? { sql: '??', bindings: [name] }
+      : { sql: name, bindings: [] };
   }
 
   /**
@@ -104,7 +101,11 @@ class AuthorizationQueryService {
   async getOrgCoverage(educationOrganizationIds) {
     // Schema and table names are internal constants and the caller's IDs are bound. The
     // column is bound as an identifier because PostgreSQL defines it as quoted camel case.
+    // Auth object names are bound the same way when the platform's are mixed case.
     const idPlaceholders = educationOrganizationIds.map(() => '?').join(', ');
+    const authTable = this.rawIdentifier(`${this.authSchema}.${this.authObjects.tables.orgToOrg}`);
+    const sourceColumn = this.rawIdentifier(this.authObjects.columns.sourceOrgId);
+    const targetColumn = this.rawIdentifier(this.authObjects.columns.targetOrgId);
 
     const sql = `select
         (select count(*) from ${this.schema}.${ORGS_TABLE}) as servedorgs,
@@ -112,13 +113,22 @@ class AuthorizationQueryService {
            from ${this.schema}.${ORGS_TABLE} served
           where not exists (
                 select 1
-                  from ${this.authSchema}.${AUTH_TABLES.orgToOrg} auth_map
-                 where auth_map.${AUTH_COLUMNS.sourceOrgId} in (${idPlaceholders})
-                   and auth_map.${AUTH_COLUMNS.targetOrgId} = served.??
+                  from ${authTable.sql} auth_map
+                 where auth_map.${sourceColumn.sql} in (${idPlaceholders})
+                   and auth_map.${targetColumn.sql} = served.??
               )) as unreachableorgs`;
 
+    // In the order the placeholders appear
+    const bindings = [
+      ...authTable.bindings,
+      ...sourceColumn.bindings,
+      ...educationOrganizationIds,
+      ...targetColumn.bindings,
+      ORGS_ORG_ID_COLUMN
+    ];
+
     try {
-      const result = await this.knex.raw(sql, [...educationOrganizationIds, ORGS_ORG_ID_COLUMN]);
+      const result = await this.knex.raw(sql, bindings);
 
       // PostgreSQL returns { rows }, MSSQL returns the array directly
       const rows = result?.rows || result;
@@ -145,24 +155,18 @@ class AuthorizationQueryService {
   }
 
   async resolveParentAuthMapping() {
-    const defaultMapping = {
-      tableName: AUTH_TABLES.orgToContact,
-      usiColumn: AUTH_COLUMNS.contactUsi
-    };
+    const candidates = this.authObjects.contactMappings;
+    const defaultMapping = candidates[0];
 
     if (this.parentAuthMapping) {
       return this.parentAuthMapping;
     }
 
-    if (!this.knex?.schema || typeof this.knex.schema.withSchema !== 'function') {
+    // A single candidate (DMS) needs no probe
+    if (candidates.length === 1 || !this.knex?.schema || typeof this.knex.schema.withSchema !== 'function') {
       this.parentAuthMapping = defaultMapping;
       return this.parentAuthMapping;
     }
-
-    const candidates = [
-      defaultMapping,
-      { tableName: AUTH_TABLES.orgToParent, usiColumn: AUTH_COLUMNS.parentUsi }
-    ];
 
     for (const candidate of candidates) {
       try {
@@ -195,9 +199,9 @@ class AuthorizationQueryService {
 
     return this.knex
       .withSchema(this.authSchema)
-      .select(AUTH_COLUMNS.targetOrgId)
-      .from(AUTH_TABLES.orgToOrg)
-      .whereIn(AUTH_COLUMNS.sourceOrgId, educationOrganizationIds);
+      .select(this.authObjects.columns.targetOrgId)
+      .from(this.authObjects.tables.orgToOrg)
+      .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
   }
 
   /**
@@ -229,23 +233,23 @@ class AuthorizationQueryService {
     const studentAuthQuery = () =>
       this.knex
         .withSchema(this.authSchema)
-        .select(AUTH_COLUMNS.studentUsi)
-        .from(AUTH_TABLES.orgToStudent)
-        .whereIn(AUTH_COLUMNS.sourceOrgId, educationOrganizationIds);
+        .select(this.authObjects.columns.student)
+        .from(this.authObjects.tables.orgToStudent)
+        .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
 
     const staffAuthQuery = () =>
       this.knex
         .withSchema(this.authSchema)
-        .select(AUTH_COLUMNS.staffUsi)
-        .from(AUTH_TABLES.orgToStaff)
-        .whereIn(AUTH_COLUMNS.sourceOrgId, educationOrganizationIds);
+        .select(this.authObjects.columns.staff)
+        .from(this.authObjects.tables.orgToStaff)
+        .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
 
     const contactAuthQuery = () =>
       this.knex
         .withSchema(this.authSchema)
-        .select(parentAuthMapping.usiColumn)
+        .select(parentAuthMapping.personColumn)
         .from(parentAuthMapping.tableName)
-        .whereIn(AUTH_COLUMNS.sourceOrgId, educationOrganizationIds);
+        .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
 
 
     return {
@@ -255,19 +259,19 @@ class AuthorizationQueryService {
             builder.orWhere(studentFilter => {
               studentFilter
                 .where('users.role', 'student')
-                .whereIn('users.participantUSI', studentAuthQuery());
+                .whereIn(`users.${this.authObjects.projectionColumns.participant}`, studentAuthQuery());
             });
 
             builder.orWhere(parentFilter => {
               parentFilter
                 .where('users.role', 'parent')
-                .whereIn('users.participantUSI', contactAuthQuery());
+                .whereIn(`users.${this.authObjects.projectionColumns.participant}`, contactAuthQuery());
             });
 
             builder.orWhere(staffFilter => {
               staffFilter
                 .whereNotIn('users.role', ['student', 'parent'])
-                .whereIn('users.participantUSI', staffAuthQuery());
+                .whereIn(`users.${this.authObjects.projectionColumns.participant}`, staffAuthQuery());
             });
         })
     };
@@ -308,9 +312,9 @@ class AuthorizationQueryService {
     const courseSourceOrgQuery = () =>
       this.knex
         .withSchema(this.authSchema)
-        .select(AUTH_COLUMNS.sourceOrgId)
-        .from(AUTH_TABLES.orgToOrg)
-        .whereIn(AUTH_COLUMNS.targetOrgId, educationOrganizationIds);
+        .select(this.authObjects.columns.sourceOrgId)
+        .from(this.authObjects.tables.orgToOrg)
+        .whereIn(this.authObjects.columns.targetOrgId, educationOrganizationIds);
 
     return {
       apply: query =>
@@ -336,16 +340,16 @@ class AuthorizationQueryService {
     const studentAuthQuery = () =>
       this.knex
         .withSchema(this.authSchema)
-        .select(AUTH_COLUMNS.studentUsi)
-        .from(AUTH_TABLES.orgToStudent)
-        .whereIn(AUTH_COLUMNS.sourceOrgId, educationOrganizationIds);
+        .select(this.authObjects.columns.student)
+        .from(this.authObjects.tables.orgToStudent)
+        .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
 
     const staffAuthQuery = () =>
       this.knex
         .withSchema(this.authSchema)
-        .select(AUTH_COLUMNS.staffUsi)
-        .from(AUTH_TABLES.orgToStaff)
-        .whereIn(AUTH_COLUMNS.sourceOrgId, educationOrganizationIds);
+        .select(this.authObjects.columns.staff)
+        .from(this.authObjects.tables.orgToStaff)
+        .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
 
     return {
       apply: query =>
@@ -356,12 +360,12 @@ class AuthorizationQueryService {
               .where(studentFilter => {
                 studentFilter
                   .where('enrollments.role', 'student')
-                  .whereIn('enrollments.participantUSI', studentAuthQuery());
+                  .whereIn(`enrollments.${this.authObjects.projectionColumns.participant}`, studentAuthQuery());
               })
               .orWhere(staffFilter => {
                 staffFilter
                   .where('enrollments.role', 'teacher')
-                  .whereIn('enrollments.participantUSI', staffAuthQuery());
+                  .whereIn(`enrollments.${this.authObjects.projectionColumns.participant}`, staffAuthQuery());
               });
           })
     };
@@ -381,9 +385,9 @@ class AuthorizationQueryService {
     const studentAuthQuery = () =>
       this.knex
         .withSchema(this.authSchema)
-        .select(AUTH_COLUMNS.studentUsi)
-        .from(AUTH_TABLES.orgToStudent)
-        .whereIn(AUTH_COLUMNS.sourceOrgId, educationOrganizationIds);
+        .select(this.authObjects.columns.student)
+        .from(this.authObjects.tables.orgToStudent)
+        .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
 
      return {
       apply: query =>
@@ -393,7 +397,7 @@ class AuthorizationQueryService {
             builder
               .where(studentFilter => {
                 studentFilter
-                  .whereIn('demographics.studentUSI', studentAuthQuery());
+                  .whereIn(`demographics.${this.authObjects.projectionColumns.student}`, studentAuthQuery());
               })
           })
     };
@@ -418,9 +422,9 @@ class AuthorizationQueryService {
     const schoolYearSourceOrgQuery = () =>
       this.knex
         .withSchema(this.authSchema)
-        .select(AUTH_COLUMNS.sourceOrgId)
-        .from(AUTH_TABLES.orgToOrg)
-        .whereIn(AUTH_COLUMNS.targetOrgId, educationOrganizationIds);
+        .select(this.authObjects.columns.sourceOrgId)
+        .from(this.authObjects.tables.orgToOrg)
+        .whereIn(this.authObjects.columns.targetOrgId, educationOrganizationIds);
 
     return {
       apply: query =>
