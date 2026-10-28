@@ -6,6 +6,7 @@
 import { jest, describe, test, expect } from '@jest/globals';
 import {
   createEdFiAdminDataStoreProvider,
+  createDmsDataStoreProvider,
   getDataStoreProvider
 } from '../../src/platform/data-store-provider.js';
 
@@ -72,8 +73,11 @@ describe('data-store providers', () => {
       expect(getDataStoreProvider('ods')).toBe(provider);
     });
 
-    test('has no DMS provider yet', () => {
-      expect(() => getDataStoreProvider('dms')).toThrow('Data-store resolution for PLATFORM=dms is not implemented yet');
+    test('uses static DATA_STORES on DMS when they are set, and the Configuration Service otherwise', () => {
+      expect(createDmsDataStoreProvider({ DATA_STORES: '{"1":{"ConnectionString":"host=a;database=b"}}' }).name).toBe('static');
+      expect(createDmsDataStoreProvider({
+        CONFIG_SERVICE_URL: 'http://cms:8081', CONFIG_SERVICE_CLIENT_ID: 'ro', CONFIG_SERVICE_CLIENT_SECRET: 's', CONFIG_SERVICE_ENCRYPTION_KEY: 'k'
+      }).name).toBe('configService');
     });
   });
 });

@@ -8,6 +8,10 @@ import cors from 'cors';
 import { auth } from 'express-oauth2-jwt-bearer';
 import { createJwtCheck } from './middleware/jwtCheck.js';
 import { createTokenVerifier } from './platform/token-verifier.js';
+import { getDataStoreProvider } from './platform/data-store-provider.js';
+import { createDmsDataStoreMiddleware } from './middleware/dmsDataStoreMiddleware.js';
+import { isDmsPlatform } from './config/platform.js';
+import { getDmsTokenSettings } from './config/dms-config.js';
 import { extractTenantMiddleware } from './middleware/tenantMiddleware.js';
 import { validateOdsInstanceFlow } from './middleware/odsInstanceValidationMiddleware.js';
 import { isMultiTenancyEnabled } from './config/multi-tenancy-config.js';
@@ -61,14 +65,22 @@ const docsRateLimiter = rateLimit({
   validate: { trustProxy: trustProxyEnabled },
 });
 
+const dmsPlatform = isDmsPlatform();
+
+// Where clients get tokens: the ODS/API's /oauth/token, or on DMS OAUTH2_TOKEN_URL (the DMS
+// /oauth/token proxy, advertised as urls.oauth in the DMS discovery document).
+const dmsTokenSettings = dmsPlatform ? getDmsTokenSettings() : null;
+const tokenUrl = dmsPlatform
+  ? (dmsTokenSettings.tokenUrl || joinUrl(dmsTokenSettings.issuer, 'connect/token'))
+  : joinUrl(process.env.OAUTH2_ISSUERBASEURL, 'oauth/token');
+
 const file = fs.readFileSync('./config/swagger.yml', 'utf8');
-const tokenUrl = joinUrl(process.env.OAUTH2_ISSUERBASEURL, 'oauth/token');
 const swaggerDocument = YAML.parse(file.replace("{OAUTH_TOKEN_URL}", tokenUrl));
 
 // Require OAuth configuration for all environments.
 let jwtCheck = (req, res, next) => { next(); };
-if (!process.env.OAUTH2_AUDIENCE || !process.env.OAUTH2_ISSUERBASEURL) {
-  throw new Error('OAUTH2_AUDIENCE and OAUTH2_ISSUERBASEURL are required to start the server.');
+if (!process.env.OAUTH2_AUDIENCE || !(dmsPlatform ? process.env.OAUTH2_ISSUER : process.env.OAUTH2_ISSUERBASEURL)) {
+  throw new Error(`OAUTH2_AUDIENCE and ${dmsPlatform ? 'OAUTH2_ISSUER' : 'OAUTH2_ISSUERBASEURL'} are required to start the server.`);
 }
 
 // Token verification for the configured PLATFORM (PEM public key on the ODS/API)
@@ -158,8 +170,7 @@ const swaggerSetup = (req, res) => res.sendFile(swaggerIndexHtml);
 
 // OAuth token redirect handler
 const oauthHandler = (req, res) => {
-  const oauthTokenUrl = joinUrl(process.env.OAUTH2_ISSUERBASEURL, 'oauth/token');
-  res.redirect(307, oauthTokenUrl);
+  res.redirect(307, tokenUrl);
 };
 
 // Swagger JSON handler
@@ -173,7 +184,8 @@ const swaggerJsonHandler = async (req, res, next) => {
 
   // Update OAuth token URL to match server configuration with tenant/context routing
   // Build dynamic security schemes for each tenant/context combination
-  if (runtimeDoc.components?.securitySchemes?.oauth2_auth) {
+  // On DMS the swagger.yml scheme already carries the one token URL
+  if (!dmsPlatform && runtimeDoc.components?.securitySchemes?.oauth2_auth) {
     const existingScopes = runtimeDoc.components.securitySchemes.oauth2_auth.flows?.clientCredentials?.scopes || {};
     const securitySchemes = await buildSwaggerSecuritySchemes(process.env.OAUTH2_ISSUERBASEURL, existingScopes);
     runtimeDoc.components.securitySchemes = securitySchemes;
@@ -235,7 +247,11 @@ app.use('/', discoveryRoutes);
 
 // Mount OneRoster routes with dynamic pattern and middleware
 const oneRosterPath = routePrefix ? `${routePrefix}/ims/oneroster` : '/ims/oneroster';
-app.use(oneRosterPath, limiter, jwtCheck, extractTenantMiddleware, validateOdsInstanceFlow, oneRosterRoutes);
+// Tenant and database resolution: ODS/API token claims and EdFi_Admin, or DMS data stores
+const resolveDataStore = dmsPlatform
+  ? [createDmsDataStoreMiddleware({ provider: getDataStoreProvider(), multiTenancyEnabled, routeContext: contextConfig })]
+  : [extractTenantMiddleware, validateOdsInstanceFlow];
+app.use(oneRosterPath, limiter, jwtCheck, ...resolveDataStore, oneRosterRoutes);
 
 // Handle auth errors:
 app.use((err, req, res, next) => {

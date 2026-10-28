@@ -15,11 +15,14 @@ import { getPlatform, PLATFORMS } from '../config/platform.js';
  * - projectionColumns: the oneroster12 columns holding the person key the mappings return.
  * - caseSensitiveNames: names are mixed case and must be quoted on PostgreSQL. ODS names are
  *   lower case, so they resolve unquoted on both engines.
+ * - directClaimMatch: an ed-org named in the token claim is reachable even without a hierarchy
+ *   row, as DMS's own relationship authorization treats it.
  */
 
 export const ODS_AUTH_OBJECT_MAP = Object.freeze({
   platform: PLATFORMS.ODS,
   caseSensitiveNames: false,
+  directClaimMatch: false,
   tables: Object.freeze({
     orgToOrg: 'educationorganizationidtoeducationorganizationid',
     orgToStudent: 'educationorganizationidtostudentusi',
@@ -46,6 +49,7 @@ export const ODS_AUTH_OBJECT_MAP = Object.freeze({
 export const DMS_AUTH_OBJECT_MAP = Object.freeze({
   platform: PLATFORMS.DMS,
   caseSensitiveNames: true,
+  directClaimMatch: true,
   tables: Object.freeze({
     orgToOrg: 'EducationOrganizationIdToEducationOrganizationId',
     orgToStudent: 'EducationOrganizationIdToStudentDocumentId',

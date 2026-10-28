@@ -116,7 +116,7 @@ class AuthorizationQueryService {
                   from ${authTable.sql} auth_map
                  where auth_map.${sourceColumn.sql} in (${idPlaceholders})
                    and auth_map.${targetColumn.sql} = served.??
-              )) as unreachableorgs`;
+              )${this.authObjects.directClaimMatch ? ` and served.?? not in (${idPlaceholders})` : ''}) as unreachableorgs`;
 
     // In the order the placeholders appear
     const bindings = [
@@ -124,7 +124,8 @@ class AuthorizationQueryService {
       ...sourceColumn.bindings,
       ...educationOrganizationIds,
       ...targetColumn.bindings,
-      ORGS_ORG_ID_COLUMN
+      ORGS_ORG_ID_COLUMN,
+      ...(this.authObjects.directClaimMatch ? [ORGS_ORG_ID_COLUMN, ...educationOrganizationIds] : [])
     ];
 
     try {
@@ -197,11 +198,19 @@ class AuthorizationQueryService {
       return null;
     }
 
-    return this.knex
+    const reachable = this.knex
       .withSchema(this.authSchema)
       .select(this.authObjects.columns.targetOrgId)
       .from(this.authObjects.tables.orgToOrg)
       .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
+
+    if (!this.authObjects.directClaimMatch) {
+      return reachable;
+    }
+
+    // The claimed ed-orgs themselves, typed to match the hierarchy column on either engine
+    const claimed = educationOrganizationIds.map(() => 'select cast(? as bigint)').join(' union all ');
+    return reachable.union(this.knex.raw(claimed, educationOrganizationIds.map(String)));
   }
 
   /**

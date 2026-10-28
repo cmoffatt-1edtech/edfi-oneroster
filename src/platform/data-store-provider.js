@@ -5,7 +5,10 @@
 
 import { getPlatform, PLATFORMS } from '../config/platform.js';
 import { getAdminConnectionString } from '../config/multi-tenancy-config.js';
+import { getDmsDataStoreSettings } from '../config/dms-config.js';
 import { odsInstanceService } from '../services/database/OdsInstanceService.js';
+import { ConfigurationServiceClient } from './dms/configuration-service-client.js';
+import { createConfigurationServiceDataStoreProvider, createStaticDataStoreProvider } from './dms/data-store-providers.js';
 import { getLogger } from '../utils/logger.js';
 
 /**
@@ -51,6 +54,37 @@ export function createEdFiAdminDataStoreProvider({
   };
 }
 
+/**
+ * DMS: the static DATA_STORES map when it is set, otherwise the Configuration Service
+ * Management API (/v3/dataStores), which lists data stores, their route contexts and encrypted
+ * connection strings.
+ */
+export function createDmsDataStoreProvider(env = process.env) {
+  const settings = getDmsDataStoreSettings(env);
+
+  if (settings.dataStores) {
+    return createStaticDataStoreProvider({
+      dataStores: settings.dataStores,
+      encryptionKey: settings.encryptionKey,
+      allowLegacy: settings.allowLegacy
+    });
+  }
+
+  const client = new ConfigurationServiceClient({
+    baseUrl: settings.configServiceUrl,
+    clientId: settings.clientId,
+    clientSecret: settings.clientSecret,
+    scope: settings.scope
+  });
+  return createConfigurationServiceDataStoreProvider({
+    client,
+    encryptionKey: settings.encryptionKey,
+    allowLegacy: settings.allowLegacy,
+    cacheSeconds: settings.cacheSeconds,
+    useReadReplica: settings.useReadReplica
+  });
+}
+
 let provider = null;
 let providerPlatform = null;
 
@@ -63,13 +97,7 @@ export function getDataStoreProvider(platform = getPlatform()) {
     return provider;
   }
 
-  if (platform === PLATFORMS.ODS) {
-    provider = createEdFiAdminDataStoreProvider();
-    providerPlatform = platform;
-    return provider;
-  }
-
-  // DMS lists data stores, their route contexts and encrypted connection strings through the
-  // Configuration Service Management API (/v3/dataStores).
-  throw new Error(`Data-store resolution for PLATFORM=${platform} is not implemented yet`);
+  provider = platform === PLATFORMS.DMS ? createDmsDataStoreProvider() : createEdFiAdminDataStoreProvider();
+  providerPlatform = platform;
+  return provider;
 }

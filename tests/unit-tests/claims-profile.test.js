@@ -3,7 +3,7 @@
 // 1EdTech Consortium, Inc. licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, test, expect } from '@jest/globals';
+import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import fs from 'fs';
 import {
   odsClaimsProfile,
@@ -116,9 +116,35 @@ describe('claims profiles', () => {
       expect(dmsClaimsProfile.getClaimSetName({})).toBeNull();
     });
 
-    test('does not yet derive OneRoster scopes from the claim set', () => {
-      expect(() => dmsClaimsProfile.getScopes({ scope: 'OneRoster-ReadOnly' }))
-        .toThrow('Mapping DMS claim sets to OneRoster scopes is not implemented yet');
+    describe('scopes from ONEROSTER_CLAIMSET_SCOPES', () => {
+      let original;
+      beforeEach(() => {
+        original = process.env.ONEROSTER_CLAIMSET_SCOPES;
+        process.env.ONEROSTER_CLAIMSET_SCOPES = JSON.stringify({
+          'OneRoster-ReadOnly': ['roster.readonly', `${'https://purl.imsglobal.org/spec/or/v1p2/scope/'}roster-demographics.readonly`],
+          'OneRoster-Core': ['roster-core.readonly']
+        });
+      });
+      afterEach(() => {
+        if (original === undefined) delete process.env.ONEROSTER_CLAIMSET_SCOPES;
+        else process.env.ONEROSTER_CLAIMSET_SCOPES = original;
+      });
+
+      test('maps the claim set in scope to OneRoster scope URIs', () => {
+        expect([...dmsClaimsProfile.getScopes(dmsSample('token-lea.payload.json'))]).toEqual([
+          ROSTER, 'https://purl.imsglobal.org/spec/or/v1p2/scope/roster-demographics.readonly'
+        ]);
+        expect([...dmsClaimsProfile.getScopes({ scope: 'OneRoster-Core' })]).toEqual([CORE]);
+      });
+
+      test('gives an unmapped claim set or a token without one no scopes', () => {
+        expect(dmsClaimsProfile.getScopes({ scope: 'SeedLoader' }).size).toBe(0);
+        expect(dmsClaimsProfile.getScopes({}).size).toBe(0);
+      });
+
+      test('feeds the scope check through getClaimsProfile', () => {
+        expect(getClaimsProfile('dms').getScopes({ scope: 'OneRoster-Core' }).has(CORE)).toBe(true);
+      });
     });
   });
 });

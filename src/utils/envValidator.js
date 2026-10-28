@@ -13,6 +13,7 @@ import { VALID_LEVELS as VALID_LOG_LEVELS, getLogger } from './logger.js';
 import { isSwaggerUiEnabled, isOpenApiMetadataEnabled } from '../config/api-docs.js';
 import { parsePlatform, PLATFORMS } from '../config/platform.js';
 import { parseRouteQualifierSegments } from '../config/route-context-config.js';
+import { validateDmsSettings } from '../config/dms-config.js';
 
 const logger = getLogger('EnvValidator');
 
@@ -127,8 +128,8 @@ export function validateEnvironmentVariables() {
     }
   }
 
-  // OAUTH2_ISSUERBASEURL must not be empty
-  if (!process.env.OAUTH2_ISSUERBASEURL) {
+  // OAUTH2_ISSUERBASEURL must not be empty (ODS/API; DMS uses OAUTH2_ISSUER, checked below)
+  if (isOdsPlatform && !process.env.OAUTH2_ISSUERBASEURL) {
     errors.push('OAUTH2_ISSUERBASEURL must not be empty');
   }
 
@@ -137,10 +138,10 @@ export function validateEnvironmentVariables() {
     errors.push('OAUTH2_AUDIENCE must not be empty');
   }
 
-  // OAUTH2_TOKENSIGNINGALG must be RS256
-  if (!process.env.OAUTH2_TOKENSIGNINGALG) {
+  // OAUTH2_TOKENSIGNINGALG must be RS256 (ODS/API; DMS tokens name their algorithm in the JWKS)
+  if (isOdsPlatform && !process.env.OAUTH2_TOKENSIGNINGALG) {
     errors.push('OAUTH2_TOKENSIGNINGALG must not be empty');
-  } else if (process.env.OAUTH2_TOKENSIGNINGALG !== 'RS256') {
+  } else if (process.env.OAUTH2_TOKENSIGNINGALG && process.env.OAUTH2_TOKENSIGNINGALG !== 'RS256') {
     errors.push('OAUTH2_TOKENSIGNINGALG must be "RS256"');
   }
 
@@ -228,9 +229,7 @@ export function validateEnvironmentVariables() {
       errors.push('ODS_CONTEXT_ROUTE_TEMPLATE applies to PLATFORM=ods; use ROUTE_QUALIFIER_SEGMENTS with PLATFORM=dms');
     }
     errors.push(...parseRouteQualifierSegments(process.env.ROUTE_QUALIFIER_SEGMENTS).errors);
-
-    // Remove when the DMS token verifier and data-store provider exist
-    errors.push('PLATFORM=dms is not supported yet: DMS token verification and data-store resolution are not implemented');
+    errors.push(...validateDmsSettings(process.env, isMultiTenancyEnabled));
   }
 
   const isHttpsEnabled = process.env.ENABLE_HTTPS === 'true';

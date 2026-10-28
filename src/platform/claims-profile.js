@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { getPlatform, PLATFORMS } from '../config/platform.js';
+import { getClaimSetScopes } from '../config/dms-config.js';
 import { getLogger } from '../utils/logger.js';
 
 /**
@@ -110,10 +111,18 @@ function parseCsvClaim(value) {
 export const dmsClaimsProfile = Object.freeze({
   platform: PLATFORMS.DMS,
 
-  getScopes() {
-    // DMS reads the whole `scope` claim as the claim-set name, so OneRoster scopes have to be
-    // derived from the claim set. That mapping is not implemented yet.
-    throw new Error('Mapping DMS claim sets to OneRoster scopes is not implemented yet');
+  /**
+   * DMS reads the whole `scope` claim as the claim-set name, so the OneRoster scopes come from
+   * ONEROSTER_CLAIMSET_SCOPES. An unmapped claim set has no scopes, which the scope check turns
+   * into 403 "Insufficient scope".
+   */
+  getScopes(payload) {
+    const claimSet = this.getClaimSetName(payload);
+    const scopes = claimSet ? getClaimSetScopes().get(claimSet) : null;
+    if (claimSet && !scopes) {
+      logger.warn(`Claim set '${claimSet}' is not mapped to OneRoster scopes (ONEROSTER_CLAIMSET_SCOPES)`);
+    }
+    return new Set(scopes || []);
   },
 
   getEducationOrganizationIds(payload) {

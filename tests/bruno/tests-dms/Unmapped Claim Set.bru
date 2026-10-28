@@ -1,0 +1,25 @@
+meta {
+  name: Unmapped Claim Set
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{oneRosterUrl}}/{{rosterPath}}/orgs
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dms-unmapped-token}}
+}
+tests {
+  test("status is 403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+
+  test("imsx failure envelope", function() {
+    expect(res.getBody().imsx_codeMajor).to.equal("failure");
+    expect(res.getBody().imsx_description).to.contain("Insufficient scope");
+  });
+}

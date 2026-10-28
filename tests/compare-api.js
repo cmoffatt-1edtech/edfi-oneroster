@@ -14,6 +14,7 @@
  *   node compare-api.js students          # Test only /students endpoint with DS5
  *   node compare-api.js teachers          # Test only /teachers endpoint with DS5
  *   node compare-api.js parents           # Test only /parents endpoint with DS5
+ *   node compare-api.js ods-vs-dms        # ODS-backed vs DMS-backed service (see compare-api-ods-dms.js)
  */
 
 import https from 'https';
@@ -22,6 +23,12 @@ import { URL, fileURLToPath } from 'url';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+
+// ODS-vs-DMS parity (Ed-Fi API v8) lives in its own module: node tests/compare-api.js ods-vs-dms
+if (process.argv[2] === 'ods-vs-dms') {
+    const { runOdsVsDms } = await import('./compare-api-ods-dms.js');
+    process.exit(await runOdsVsDms(process.argv.slice(3)));
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

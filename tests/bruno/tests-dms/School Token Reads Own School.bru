@@ -1,0 +1,24 @@
+meta {
+  name: School Token Reads Own School
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{oneRosterUrl}}/{{rosterPath}}/orgs?limit=10
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dms-school-token}}
+}
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("only its own school", function() {
+    expect(res.getBody().orgs.map(o => o.identifier)).to.deep.equal(["255901107"]);
+  });
+}

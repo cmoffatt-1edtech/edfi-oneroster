@@ -1,4 +1,4 @@
-# OneRoster on Ed-Fi API v8 (DMS): database-level parity report
+# OneRoster on Ed-Fi API v8 (DMS): parity report
 
 **Run:** 2026-10-28. **Tool:** `tests/compare-dms-database.sh` (`tests/compare-dms-database.js` in a
 container on both stacks' Docker networks).
@@ -74,3 +74,31 @@ A synthetic fixture loaded on both platforms would close this gap; it's listed a
 | enrollments | 604 ms | 480 ms | 245 ms |
 
 Full deploy of all seven views: about 0.5 s.
+
+## API level (phase 3)
+
+`node tests/compare-api.js ods-vs-dms`: the ODS-backed service (`main`, behind nginx) against the
+DMS-backed service from this branch (`stack/dms`), with an LEA and a School client on each side.
+Every collection paged at 500, three single items per collection, and six error responses
+(no token, malformed token, bad `limit`, unknown id, unknown path, a filter on an unknown field),
+plus the roster-core-only client on `/demographics` (403 on both). 270 requests.
+
+| Client | Collections | Result |
+| --- | --- | --- |
+| School 255901107 | all 12 | identical, same order |
+| LEA 255901 | 11 of 12 | identical, same order (`orgs`: LEA `children` order only, as above) |
+| LEA 255901 | `users` | ODS 2,888, DMS 2,901: the 2,888 are identical; 13 only on DMS |
+
+**The 13 LEA users only DMS returns** are 12 staff with no school association and one contact with
+no school; their `educationOrganizationId` is null, and the rows are the same in both databases.
+The relationship filter drops rows with a null `educationOrganizationId`, but the #133 full-access
+short-circuit skips the filter when the caller reaches every served org. On DMS the LEA reaches all
+4 orgs, so the short-circuit applies. On the ODS the TPDM schools 5/6/7 are served too and the LEA
+can't reach them, so the filter runs. With the short-circuit disabled, DMS returns exactly 2,888
+(checked by running the DMS filter directly). Both platforms run the same logic; the difference
+comes from the TPDM sample data and from an upstream inconsistency in #133.
+
+Bruno: the main collection passes against DMS (54 requests, 199/199; one more page than on the ODS
+because of the 13 users), and `tests/bruno/tests-dms` passes 20/20 (no token, malformed token,
+tampered signature, unmapped claim set, roster-core on `/demographics`, School token outside its
+ed-org).

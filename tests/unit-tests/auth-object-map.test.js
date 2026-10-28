@@ -78,6 +78,13 @@ describe('auth object maps', () => {
       expect(compiled).toContain('and auth_map."TargetEducationOrganizationId" = served."educationOrganizationId"');
     });
 
+    test('counts an ed-org named in the claim as reachable on DMS', async () => {
+      const { compiled, bindings } = await compileCoverageQuery(pg, DMS_AUTH_OBJECT_MAP);
+
+      expect(compiled).toMatch(/\) and served\."educationOrganizationId" not in \('255901'\)\) as unreachableorgs$/);
+      expect(bindings.slice(-2)).toEqual(['educationOrganizationId', '255901']);
+    });
+
     test('brackets the DMS auth names on SQL Server', async () => {
       const { compiled } = await compileCoverageQuery(mssql, DMS_AUTH_OBJECT_MAP);
 
@@ -99,11 +106,20 @@ describe('auth object maps', () => {
     test('read the DMS hierarchy and DocumentId views for users, students, staff and contacts', async () => {
       const sql = await compileFilter(DMS_AUTH_OBJECT_MAP, 'users', 'users');
 
-      expect(sql).toContain('"users"."educationOrganizationId" in (select "TargetEducationOrganizationId" from "auth"."EducationOrganizationIdToEducationOrganizationId" where "SourceEducationOrganizationId" in (?))');
+      expect(sql).toContain('"users"."educationOrganizationId" in (select "TargetEducationOrganizationId" from "auth"."EducationOrganizationIdToEducationOrganizationId" where "SourceEducationOrganizationId" in (?) union select cast(? as bigint))');
       expect(sql).toContain('"users"."participantDocumentId" in (select "Student_DocumentId" from "auth"."EducationOrganizationIdToStudentDocumentId" where "SourceEducationOrganizationId" in (?))');
       expect(sql).toContain('"users"."participantDocumentId" in (select "Contact_DocumentId" from "auth"."EducationOrganizationIdToContactDocumentId" where "SourceEducationOrganizationId" in (?))');
       expect(sql).toContain('"users"."participantDocumentId" in (select "Staff_DocumentId" from "auth"."EducationOrganizationIdToStaffDocumentId" where "SourceEducationOrganizationId" in (?))');
       expect(sql).not.toMatch(/usi/i);
+    });
+
+    test('add the claimed ed-orgs to the reachable set on DMS only', async () => {
+      const dms = new AuthorizationQueryService(pg, 'oneroster12', 'auth', DMS_AUTH_OBJECT_MAP).buildAccessibleOrgIdsQuery(['255901', '255902']).toSQL();
+      const ods = new AuthorizationQueryService(pg, 'oneroster12', 'auth', ODS_AUTH_OBJECT_MAP).buildAccessibleOrgIdsQuery(['255901']).toSQL();
+
+      expect(dms.sql).toBe('select "TargetEducationOrganizationId" from "auth"."EducationOrganizationIdToEducationOrganizationId" where "SourceEducationOrganizationId" in (?, ?) union select cast(? as bigint) union all select cast(? as bigint)');
+      expect(dms.bindings).toEqual(['255901', '255902', '255901', '255902']);
+      expect(ods.sql).not.toContain('union');
     });
 
     test('read the DMS student view for demographics', async () => {

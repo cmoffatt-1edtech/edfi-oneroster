@@ -25,6 +25,11 @@
  *     --only orgs,users       Deploy these projections only (file names without .sql).
  *     --jobs-database <name>  Also create this database for the pg-boss queue if it is missing.
  *   The connection string can come from DMS_DATA_STORE_CONNECTION instead of --connection.
+ *
+ *   node standard/deploy-dms.js --from-cms [--data-store <id>] [--tenant <name>]
+ *     Deploys to every data store the Configuration Service lists (or the one given), using
+ *     CONFIG_SERVICE_URL, CONFIG_SERVICE_CLIENT_ID/_SECRET and CONFIG_SERVICE_ENCRYPTION_KEY, as the
+ *     service does. CMS connection strings name hosts on the DMS network, so run it there.
  *   Statements run without a timeout unless DB_REQUEST_TIMEOUT is set.
  */
 
@@ -36,6 +41,9 @@ import { parseConnectionString } from '../src/config/multi-tenancy-config.js';
 import { buildPostgresClientOptions } from '../src/config/db-connection.js';
 import { buildRequestTimeoutOptions } from '../src/config/db-timeouts.js';
 import { listArtifactFiles, nameMapFileName, PLACEHOLDER_PATTERN } from './dms/build-name-map.js';
+import { getDmsDataStoreSettings } from '../src/config/dms-config.js';
+import { ConfigurationServiceClient } from '../src/platform/dms/configuration-service-client.js';
+import { createConfigurationServiceDataStoreProvider } from '../src/platform/dms/data-store-providers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ENGINE_DIR = 'dms-pgsql';
@@ -44,17 +52,20 @@ const REFERENCED_OBJECT_PATTERN = /\b(edfi|dms|auth|tpdm)\."([A-Za-z0-9_]+)"/g;
 const VIEW_PATTERN = /create\s+materialized\s+view\s+(?:if\s+not\s+exists\s+)?oneroster12\.("?)([A-Za-z0-9_]+)\1/gi;
 
 function parseArgs(argv) {
-  const args = { connection: process.env.DMS_DATA_STORE_CONNECTION, check: false, only: null, jobsDatabase: null };
+  const args = { connection: process.env.DMS_DATA_STORE_CONNECTION, check: false, only: null, jobsDatabase: null, fromCms: false, dataStore: null, tenant: null };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case '--connection': args.connection = argv[++i]; break;
       case '--check': args.check = true; break;
       case '--only': args.only = argv[++i].split(',').map(name => name.trim()).filter(Boolean); break;
       case '--jobs-database': args.jobsDatabase = argv[++i]; break;
+      case '--from-cms': args.fromCms = true; break;
+      case '--data-store': args.dataStore = argv[++i]; break;
+      case '--tenant': args.tenant = argv[++i]; break;
       default: throw new Error(`Unknown argument: ${argv[i]}`);
     }
   }
-  if (!args.connection) throw new Error('Set --connection or DMS_DATA_STORE_CONNECTION');
+  if (!args.connection && !args.fromCms) throw new Error('Set --connection, DMS_DATA_STORE_CONNECTION or --from-cms');
   return args;
 }
 
@@ -188,12 +199,39 @@ async function ensureJobsDatabase(client, name) {
   return true;
 }
 
+/** Connection strings for the data stores the Configuration Service lists. */
+async function dataStoreConnections(args) {
+  const settings = getDmsDataStoreSettings();
+  const provider = createConfigurationServiceDataStoreProvider({
+    client: new ConfigurationServiceClient({
+      baseUrl: settings.configServiceUrl, clientId: settings.clientId, clientSecret: settings.clientSecret, scope: settings.scope
+    }),
+    encryptionKey: settings.encryptionKey,
+    allowLegacy: settings.allowLegacy
+  });
+  const dataStores = (await provider.listDataStores(args.tenant))
+    .filter(ds => !args.dataStore || ds.id === String(args.dataStore));
+  if (dataStores.length === 0) throw new Error('The Configuration Service lists no matching data store');
+  return Promise.all(dataStores.map(async ds => ({
+    label: `data store ${ds.id} (${ds.name})`,
+    connection: await provider.resolveConnectionString({ tenantId: args.tenant, dataStoreId: ds.id })
+  })));
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   // A deploy builds every view from scratch, which can exceed the API's per-query timeout.
   process.env.DB_REQUEST_TIMEOUT ??= '0';
 
-  const connectionConfig = parseConnectionString(args.connection, 'postgres');
+  const targets = args.fromCms ? await dataStoreConnections(args) : [{ label: null, connection: args.connection }];
+  for (const target of targets) {
+    if (target.label) console.log(`\n== ${target.label}`);
+    await deploy(args, target.connection);
+  }
+}
+
+async function deploy(args, connection) {
+  const connectionConfig = parseConnectionString(connection, 'postgres');
   const client = new pg.Client({
     ...buildPostgresClientOptions(connectionConfig),
     ...buildRequestTimeoutOptions('postgres')
