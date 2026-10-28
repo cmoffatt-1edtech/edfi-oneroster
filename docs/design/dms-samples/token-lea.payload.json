@@ -1,0 +1,20 @@
+{
+  "jti": "<redacted>",
+  "sub": "<redacted>",
+  "iat": "1793217412",
+  "exp": "1793219212",
+  "client_id": "<redacted>",
+  "typ": "Bearer",
+  "azp": "<redacted>",
+  "scope": "OneRoster-ReadOnly",
+  "aud": "account",
+  "iss": "http://ed-fi-api-config:8081",
+  "namespacePrefixes": "uri://1edtech.org,uri://ed-fi.org",
+  "educationOrganizationIds": "255901",
+  "client_name": "OneRoster LEA",
+  "permission": "OneRoster-ReadOnly",
+  "http://schemas.microsoft.com/ws/2008/06/identity/claims/role": [
+    "dms-client"
+  ],
+  "dataStoreIds": "1"
+}

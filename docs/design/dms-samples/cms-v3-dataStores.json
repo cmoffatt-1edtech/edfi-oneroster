@@ -1,0 +1,12 @@
+[
+  {
+    "id": 1,
+    "dataStoreType": "Development",
+    "name": "Local Development Data Store",
+    "connectionString": "<base64 AES-256-GCM envelope, 212 chars>",
+    "provider": "postgresql",
+    "dataStoreContexts": [],
+    "dataStoreDerivatives": [],
+    "tenantId": null
+  }
+]

@@ -1,0 +1,26 @@
+{
+    "version": "8.0.0",
+    "applicationName": "Ed-Fi API",
+    "informationalVersion": "8.0.0",
+    "dataModels": [
+        {
+            "name": "Ed-Fi",
+            "version": "5.2.0",
+            "informationalVersion": "The Ed-Fi Data Standard v5.2.0"
+        },
+        {
+            "name": "TPDM",
+            "version": "1.1.0",
+            "informationalVersion": ""
+        }
+    ],
+    "urls": {
+        "dependencies": "http://localhost:8080/metadata/dependencies",
+        "openApiMetadata": "http://localhost:8080/metadata/specifications",
+        "oauth": "http://localhost:8080/oauth/token",
+        "tokenInfo": "http://localhost:8080/oauth/token_info",
+        "dataManagementApi": "http://localhost:8080/data",
+        "changeQueries": "http://localhost:8080/changeQueries/v1/",
+        "xsdMetadata": "http://localhost:8080/metadata/xsd"
+    }
+}

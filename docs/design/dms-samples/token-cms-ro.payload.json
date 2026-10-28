@@ -1,0 +1,20 @@
+{
+  "jti": "<redacted>",
+  "sub": "<redacted>",
+  "iat": "1793217413",
+  "exp": "1793219213",
+  "client_id": "<redacted>",
+  "typ": "Bearer",
+  "azp": "<redacted>",
+  "scope": "edfi_admin_api/authMetadata_readonly_access",
+  "aud": "account",
+  "iss": "http://ed-fi-api-config:8081",
+  "namespacePrefixes": "http://ed-fi.org",
+  "client_name": "CMS Auth Endpoints Only Access",
+  "permission": "edfi_admin_api/authMetadata_readonly_access",
+  "http://schemas.microsoft.com/ws/2008/06/identity/claims/role": [
+    "dms-client",
+    "cms-client"
+  ],
+  "dataStoreIds": ""
+}
