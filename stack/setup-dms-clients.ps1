@@ -32,6 +32,11 @@
     dms/.env.dms-clients are kept. If an application exists but its credentials are not in the
     file, rerun with -ResetMissingCredentials to rotate them.
 
+    An existing application whose claim set or education organization differs from the ones above
+    is updated to match, and the change is printed. One bound to a data store other than the
+    requested one stops the script before anything is written: the Configuration Service binds
+    data stores to API clients, which this script doesn't change.
+
     DMS caches claim sets for 10 minutes, so after creating a claim set the script restarts the DMS
     container (-DmsContainer, default ed-fi-api). -NoRestart skips that.
 
@@ -281,11 +286,42 @@ if (Test-Path -LiteralPath $clientsFile) {
 }
 
 $vendorApplications = @(Invoke-Cms -Path "/v3/vendors/$($vendor.id)/applications")
+foreach ($app in $applications) {
+    $app.Existing = $vendorApplications | Where-Object { $_.applicationName -eq $app.Name } | Select-Object -First 1
+}
+
+# CMS binds data stores to an application's API clients, which this script doesn't change. Check
+# every existing application before creating, updating or writing anything.
+foreach ($app in $applications | Where-Object { $_.Existing }) {
+    $boundDataStores = @($app.Existing.dataStoreIds | Where-Object { $null -ne $_ })
+    if ($boundDataStores.Count -ne 1 -or $boundDataStores[0] -ne $DataStoreId) {
+        $bound = if ($boundDataStores.Count -gt 0) { $boundDataStores -join ", " } else { "none" }
+        throw "Application '$($app.Name)' is on data store(s) $bound, not $DataStoreId. Pick that data store with -DataStoreId, or delete the application in the Configuration Service and rerun."
+    }
+}
+
 $credentials = [ordered]@{}
 foreach ($app in $applications) {
-    $existing = $vendorApplications | Where-Object { $_.applicationName -eq $app.Name } | Select-Object -First 1
+    $existing = $app.Existing
     $keyName = "$($app.Prefix)_KEY"
     $secretName = "$($app.Prefix)_SECRET"
+
+    if ($existing) {
+        # Bring the claim set and education organization back to what this script sets
+        $edOrgIds = @($existing.educationOrganizationIds | Where-Object { $null -ne $_ })
+        if ($existing.claimSetName -ne $app.ClaimSet -or $edOrgIds.Count -ne 1 -or $edOrgIds[0] -ne $app.EdOrgId) {
+            Invoke-Cms -Method Put -Path "/v3/applications/$($existing.id)" -Body @{
+                id                       = $existing.id
+                applicationName          = $existing.applicationName
+                vendorId                 = $vendor.id
+                claimSetName             = $app.ClaimSet
+                educationOrganizationIds = @($app.EdOrgId)
+                profileIds               = @($existing.profileIds | Where-Object { $null -ne $_ })
+            } | Out-Null
+            $before = "$($existing.claimSetName), ed-org $(if ($edOrgIds.Count -gt 0) { $edOrgIds -join ',' } else { 'none' })"
+            Write-Host "Updated application $($app.Name): $before -> $($app.ClaimSet), ed-org $($app.EdOrgId)" -ForegroundColor Yellow
+        }
+    }
 
     if (-not $existing) {
         $created = Invoke-Cms -Method Post -Path "/v3/applications" -Body @{
@@ -361,6 +397,9 @@ if ($createdClaimSets.Count -gt 0) {
     else {
         Write-Host "Restarting $DmsContainer so it loads the new claim sets..."
         docker restart $DmsContainer | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "docker restart $DmsContainer failed (exit code $LASTEXITCODE). Restart it before using the new claim sets."
+        }
         $deadline = (Get-Date).AddSeconds(120)
         do {
             Start-Sleep -Seconds 3

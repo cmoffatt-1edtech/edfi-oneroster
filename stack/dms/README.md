@@ -41,9 +41,9 @@ token and call it, see [Calling the service](#calling-the-service).
 
 | Script | What it does |
 | --- | --- |
-| `setup-dms-clients.ps1` | Creates the OneRoster claim sets, vendor and applications in CMS (table below). Writes `dms/.env.dms-clients` (credentials and URLs) and `dms/.env.dms` (service settings), both git-ignored and readable only by you. Restarts the DMS container after creating a claim set, because DMS caches claim sets for 10 minutes. Idempotent: it keeps existing objects and credentials. |
+| `setup-dms-clients.ps1` | Creates the OneRoster claim sets, vendor and applications in CMS (table below). Writes `dms/.env.dms-clients` (credentials and URLs) and `dms/.env.dms` (service settings), both git-ignored and readable only by you. Restarts the DMS container after creating a claim set, because DMS caches claim sets for 10 minutes. Idempotent: it keeps existing objects and credentials, puts back an application's claim set or ed-org if it changed, and stops before writing anything if an application is on another data store. |
 | `start-dms-services.ps1` | Builds the image if needed (`-Rebuild` forces it). Seeds the OneRoster descriptors and descriptor mappings through the Ed-Fi API (`standard/seed-descriptors.js`), deploys the `oneroster12` projections into every data store CMS lists, and creates the pg-boss database (`standard/deploy-dms.js --from-cms --jobs-database`). Then starts the service and waits for its health check. Every step runs in a container on the DMS network. `-SkipSeed` and `-SkipDeploy` start the service only. |
-| `stop-dms-services.ps1` | Stops and removes the service container. `-Purge` also removes the image. DMS keeps running. |
+| `stop-dms-services.ps1` | Stops and removes the service container. `-Purge` also removes the image. DMS keeps running. Fails if Docker does, so a wipe doesn't follow a stop that didn't happen. |
 
 What `setup-dms-clients.ps1` creates:
 
@@ -138,6 +138,7 @@ Tests (Bruno, API parity with the ODS stack, database parity) are in
 | --- | --- |
 | `Docker network 'dms' not found` | The DMS stack isn't running. Start it first. |
 | DMS answers 500 "Security Configuration Error" for a token on a new claim set | DMS caches claim sets for 10 minutes. `setup-dms-clients.ps1` restarts DMS after creating one; otherwise `docker restart ed-fi-api`. |
+| `Application '…' is on data store(s) …, not …` | The application was created for another data store. Pass that one with `-DataStoreId`, or delete the application in CMS and rerun. |
 | `Application '…' exists, but its credentials are not in …` | `.env.dms-clients` was deleted or comes from another stack. Rerun with `-ResetMissingCredentials` to rotate those applications' secrets. |
 | 429 from the token endpoint | The 15-active-token limit. Wait for tokens to expire (30 minutes). |
 | Every request gets 401, and `docker logs oneroster-dms` shows `Issuer claim mismatch` | `OAUTH2_ISSUER` must equal the `iss` claim exactly (`http://ed-fi-api-config:8081` on this stack). |

@@ -90,6 +90,38 @@ describe('ConfigurationServiceClient', () => {
     expect(fake.calls.tokens).toBe(2);
   });
 
+  // 20 requests sent with the cached token are refused, and their 401s arrive one at a time. Only
+  // the first may drop the token; the rest must reuse its replacement rather than discard it.
+  test('late 401s for an old token cost one new token, not one each', async () => {
+    let issued = 0;
+    let revoked = false;
+    const held = [];
+    const fetchImpl = jest.fn(async (url, init = {}) => {
+      if (url.endsWith('/connect/token')) {
+        return jsonResponse(200, { access_token: `token-${++issued}`, expires_in: 1800 });
+      }
+      if (revoked && init.headers.Authorization === 'Bearer token-1') {
+        return new Promise(resolve => held.push(() => resolve(jsonResponse(401, {}))));
+      }
+      return jsonResponse(200, [{ id: 1 }]);
+    });
+    const client = createClient({ fetchImpl });
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+
+    await client.getDataStores();
+    revoked = true;
+    const requests = Array.from({ length: 20 }, () => client.getDataStores());
+    await settle();
+    expect(held).toHaveLength(20);
+
+    for (const release of held) {
+      release();
+      await settle();
+    }
+    await expect(Promise.all(requests)).resolves.toHaveLength(20);
+    expect(issued).toBe(2);
+  });
+
   test('returns null on 404 and throws on other failures', async () => {
     expect(await createClient(createFakeCms({ dataStatus: [404] })).getApiClient('x', 'T')).toBeNull();
 

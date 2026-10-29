@@ -3,13 +3,17 @@
 // 1EdTech Consortium, Inc. licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import crypto from 'crypto';
 import { decryptConnectionString, isPlainConnectionString } from './connection-string-crypto.js';
+import { ConfigurationServiceError } from './configuration-service-client.js';
 import { getLogger } from '../../utils/logger.js';
 
 /**
  * DMS data-store providers. Besides the shared resolveConnectionString / destroy contract
  * (src/platform/data-store-provider.js) they list data stores for routing:
- *   listDataStores(tenantId, { reload }) -> [{ id, name, contexts: { key: value }, ... }]
+ *   listDataStores(tenantId, { reload }) -> [{ id, name, contexts: { key: value }, connectionVersion, ... }]
+ *   resolveRefreshConnectionString({ tenantId, dataStoreId }) -> the primary, when queries go to a
+ *     read replica; null when the query connection is the primary
  *   isTenant(tenantId), isClientBoundToTenant(clientId, tenantId), checkHealth()
  */
 
@@ -26,15 +30,30 @@ export class DataStoreNotFoundError extends Error {
   }
 }
 
+/**
+ * A short digest of a data store's connection strings (as stored, so usually ciphertext). It
+ * changes when the Configuration Service changes either one, which tells DatabaseServiceFactory to
+ * replace the connection pools it built from the old values.
+ */
+export function connectionVersion(connectionString, readReplicaConnectionString) {
+  return crypto.createHash('sha256')
+    .update(`${connectionString || ''}\n${readReplicaConnectionString || ''}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
 /** Normalize a /v3/dataStores item. */
 export function normalizeDataStore(item) {
+  const connectionString = item.connectionString || null;
+  const readReplicaConnectionString = (item.dataStoreDerivatives || [])
+    .find(d => d.derivativeType === 'ReadReplica' && d.connectionString)?.connectionString || null;
   return {
     id: String(item.id),
     name: item.name,
-    connectionString: item.connectionString || null,
+    connectionString,
     contexts: Object.fromEntries((item.dataStoreContexts || []).map(c => [c.contextKey, c.contextValue])),
-    readReplicaConnectionString: (item.dataStoreDerivatives || [])
-      .find(d => d.derivativeType === 'ReadReplica' && d.connectionString)?.connectionString || null
+    readReplicaConnectionString,
+    connectionVersion: connectionVersion(connectionString, readReplicaConnectionString)
   };
 }
 
@@ -50,6 +69,8 @@ function tenantKey(tenantId) {
  * @param {boolean} [options.allowLegacy=true]
  * @param {number} [options.cacheSeconds=600] - Data-store list TTL (DMS uses 600 s)
  * @param {boolean} [options.useReadReplica=false] - Query the ReadReplica derivative when there is one
+ * @param {boolean} [options.multiTenancyEnabled=false] - CMS then needs a Tenant header on
+ *   /v3/dataStores, so the health check reads /v3/tenants instead
  * @param {Function} [options.now]
  */
 export function createConfigurationServiceDataStoreProvider({
@@ -58,6 +79,7 @@ export function createConfigurationServiceDataStoreProvider({
   allowLegacy = true,
   cacheSeconds = DEFAULT_DATA_STORE_CACHE_SECONDS,
   useReadReplica = false,
+  multiTenancyEnabled = false,
   now = Date.now
 }) {
   const dataStoreCache = new Map(); // tenant key -> { expiresAt, dataStores }
@@ -76,24 +98,44 @@ export function createConfigurationServiceDataStoreProvider({
     return dataStores;
   }
 
+  async function findDataStore(tenantId, dataStoreId) {
+    const id = String(dataStoreId);
+    let dataStore = (await listDataStores(tenantId)).find(ds => ds.id === id);
+    if (!dataStore) {
+      dataStore = (await listDataStores(tenantId, { reload: true })).find(ds => ds.id === id);
+    }
+    if (!dataStore) {
+      throw new DataStoreNotFoundError(id);
+    }
+    return dataStore;
+  }
+
+  function decrypt(dataStore, encrypted) {
+    if (!encrypted) {
+      throw new Error(`Data store ${dataStore.id} has no connection string configured`);
+    }
+    return decryptConnectionString(encrypted, encryptionKey, { allowLegacy });
+  }
+
+  const queriesReplica = dataStore => Boolean(useReadReplica && dataStore.readReplicaConnectionString);
+
   return {
     name: 'configService',
     listDataStores,
 
+    /** The connection queries use: the read replica when USE_READ_REPLICA is on and there is one. */
     async resolveConnectionString({ tenantId = null, dataStoreId }) {
-      const id = String(dataStoreId);
-      let dataStore = (await listDataStores(tenantId)).find(ds => ds.id === id);
-      if (!dataStore) {
-        dataStore = (await listDataStores(tenantId, { reload: true })).find(ds => ds.id === id);
-      }
-      if (!dataStore) {
-        throw new DataStoreNotFoundError(id);
-      }
-      const encrypted = (useReadReplica && dataStore.readReplicaConnectionString) || dataStore.connectionString;
-      if (!encrypted) {
-        throw new Error(`Data store ${id} has no connection string configured`);
-      }
-      return decryptConnectionString(encrypted, encryptionKey, { allowLegacy });
+      const dataStore = await findDataStore(tenantId, dataStoreId);
+      return decrypt(dataStore, queriesReplica(dataStore) ? dataStore.readReplicaConnectionString : dataStore.connectionString);
+    },
+
+    /**
+     * Materialized views are refreshed on the primary: a read replica (a hot standby) can't run
+     * REFRESH, and it receives the refreshed views through replication.
+     */
+    async resolveRefreshConnectionString({ tenantId = null, dataStoreId }) {
+      const dataStore = await findDataStore(tenantId, dataStoreId);
+      return queriesReplica(dataStore) ? decrypt(dataStore, dataStore.connectionString) : null;
     },
 
     async isTenant(tenantId) {
@@ -112,8 +154,19 @@ export function createConfigurationServiceDataStoreProvider({
       return (await client.getApiClient(clientId, tenantId)) !== null;
     },
 
+    /**
+     * Single tenant: read /v3/dataStores. Multi-tenant CMS answers 400 to that without a Tenant
+     * header, so read /v3/tenants, which needs none and which tenant validation reads anyway.
+     */
     async checkHealth() {
-      await client.getDataStores(null);
+      if (!multiTenancyEnabled) {
+        await client.getDataStores(null);
+        return;
+      }
+      if ((await client.getTenants()) === null) {
+        // CMS maps /v3/tenants only when its own multi-tenancy is on
+        throw new ConfigurationServiceError('Configuration Service has no /v3/tenants: is it running multi-tenant?', 404);
+      }
     },
 
     destroy() {
@@ -138,7 +191,8 @@ export function createStaticDataStoreProvider({ dataStores, encryptionKey = null
     name: config.Name || `Data store ${id}`,
     connectionString: config.ConnectionString,
     contexts: { ...(config.ContextValueByKey || {}) },
-    readReplicaConnectionString: null
+    readReplicaConnectionString: null,
+    connectionVersion: connectionVersion(config.ConnectionString, null)
   }));
 
   return {
@@ -156,6 +210,10 @@ export function createStaticDataStoreProvider({ dataStores, encryptionKey = null
       return isPlainConnectionString(dataStore.connectionString)
         ? dataStore.connectionString
         : decryptConnectionString(dataStore.connectionString, encryptionKey, { allowLegacy });
+    },
+
+    resolveRefreshConnectionString() {
+      return Promise.resolve(null);
     },
 
     isTenant() {

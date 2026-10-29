@@ -17,6 +17,9 @@ import { getLogger } from '../utils/logger.js';
  * A provider implements:
  *   resolveConnectionString({ tenantId, dataStoreId, dbType }) -> Promise<string> (plain text)
  *   destroy() -> Promise<void>, releasing any connections or caches the provider holds
+ * and optionally (DMS only):
+ *   resolveRefreshConnectionString({ tenantId, dataStoreId }) -> Promise<string|null>, the
+ *     connection to refresh materialized views on when it isn't the query connection
  *
  * dataStoreId is the ODS instance ID on the ODS/API and the data store ID on DMS.
  */
@@ -81,7 +84,8 @@ export function createDmsDataStoreProvider(env = process.env) {
     encryptionKey: settings.encryptionKey,
     allowLegacy: settings.allowLegacy,
     cacheSeconds: settings.cacheSeconds,
-    useReadReplica: settings.useReadReplica
+    useReadReplica: settings.useReadReplica,
+    multiTenancyEnabled: env.MULTITENANCY_ENABLED === 'true'
   });
 }
 

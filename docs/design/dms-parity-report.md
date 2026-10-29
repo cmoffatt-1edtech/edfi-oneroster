@@ -13,6 +13,11 @@ the same digits differ). Column types are compared too. Ignored by design: `date
 (different load times; its type is still compared) and the platform person keys
 (`participantUSI`/`studentUSI` on the ODS, `participantDocumentId`/`studentDocumentId` on DMS).
 
+Since the independent review, a `sourcedId` that appears more than once on either side and a column
+on one side only also fail the run. The column lists come from the catalog, so an empty view is
+checked too. `compare-api.js ods-vs-dms` also fails on a repeated `sourcedId`. Rerun on
+2026-10-28 with both rules: no duplicates and no one-sided columns in any view or collection.
+
 **Excluded (ODS side only):** education organizations 5, 6 and 7, the TPDM UT Austin schools,
 which the DMS Populated template doesn't load: 3 orgs, 999 users, 999 demographics. They own no
 sessions, courses, sections or enrollments.
@@ -58,6 +63,7 @@ logic for each, but no data reaches them:
   more than one school year; more than one calendar; classes with several periods (only 1).
 
 A synthetic fixture loaded on both platforms would close this gap; it's listed as follow-up work.
+The inline fixture run above wasn't committed, so it guards nothing against regressions.
 
 ## Inherited from the ODS artifacts (kept for parity)
 
@@ -97,6 +103,13 @@ short-circuit skips the filter when the caller reaches every served org. On DMS 
 can't reach them, so the filter runs. With the short-circuit disabled, DMS returns exactly 2,888
 (checked by running the DMS filter directly). Both platforms run the same logic; the difference
 comes from the TPDM sample data and from an upstream inconsistency in #133.
+
+**Accepting these 13 is a decision about authorization semantics, not a parity result.** The
+#133 short-circuit lets a caller that reaches every served org see people who have no org at all.
+The port keeps that behavior on both platforms, because changing it would change what ODS clients
+see, which is a separate decision. They are listed in `tests/dms-parity-known-differences.json`
+so the API comparison still fails on anything else. If #133's short-circuit changes upstream, the list
+becomes empty and both platforms return 2,888.
 
 Bruno: the main collection passes against DMS (54 requests, 199/199; one more page than on the ODS
 because of the 13 users), and `tests/bruno/tests-dms` passes 20/20 (no token, malformed token,

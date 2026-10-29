@@ -7,6 +7,7 @@ import { jest, describe, test, expect } from '@jest/globals';
 import fs from 'fs';
 import {
   normalizeDataStore,
+  connectionVersion,
   createConfigurationServiceDataStoreProvider,
   createStaticDataStoreProvider,
   DataStoreNotFoundError
@@ -38,8 +39,22 @@ describe('DMS data-store providers', () => {
       name: 'School Year 2026',
       connectionString: vectors.envelope,
       contexts: { schoolYear: '2026' },
-      readReplicaConnectionString: vectors.legacy
+      readReplicaConnectionString: vectors.legacy,
+      connectionVersion: connectionVersion(vectors.envelope, vectors.legacy)
     });
+  });
+
+  test('the connection version changes with either connection string and only then', () => {
+    const version = normalizeDataStore(dataStore2026).connectionVersion;
+    const withDerivative = connectionString => ({
+      ...dataStore2026,
+      dataStoreDerivatives: [{ ...dataStore2026.dataStoreDerivatives[0], connectionString }]
+    });
+
+    expect(version).toMatch(/^[0-9a-f]{16}$/);
+    expect(normalizeDataStore({ ...dataStore2026, dataStoreContexts: [] }).connectionVersion).toBe(version);
+    expect(normalizeDataStore({ ...dataStore2026, connectionString: 'other' }).connectionVersion).not.toBe(version);
+    expect(normalizeDataStore(withDerivative('other')).connectionVersion).not.toBe(version);
   });
 
   describe('Configuration Service', () => {
@@ -92,6 +107,46 @@ describe('DMS data-store providers', () => {
       expect(await provider.isClientBoundToTenant('other', 'Tenant1')).toBe(false);
       expect(client.getApiClient).toHaveBeenCalledWith('other', 'Tenant1');
     });
+
+    // The primary is envelope ciphertext and the replica legacy ciphertext, so with legacy refused
+    // only the primary decrypts: that shows which one each method picked.
+    test('refreshes on the primary when queries go to the read replica', async () => {
+      const replica = createConfigurationServiceDataStoreProvider({
+        client: createClient(), encryptionKey: vectors.key, allowLegacy: false, useReadReplica: true
+      });
+      await expect(replica.resolveConnectionString({ dataStoreId: 1 })).rejects.toThrow('Legacy AES-CBC');
+      await expect(replica.resolveRefreshConnectionString({ dataStoreId: 1 })).resolves.toBe(vectors.plaintext);
+    });
+
+    test('has no separate refresh connection when queries use the primary', async () => {
+      const primary = createConfigurationServiceDataStoreProvider({ client: createClient(), encryptionKey: vectors.key });
+      const noReplica = createConfigurationServiceDataStoreProvider({
+        client: createClient([{ ...dataStore2026, dataStoreDerivatives: [] }]), encryptionKey: vectors.key, useReadReplica: true
+      });
+      await expect(primary.resolveRefreshConnectionString({ dataStoreId: 1 })).resolves.toBeNull();
+      await expect(noReplica.resolveRefreshConnectionString({ dataStoreId: 1 })).resolves.toBeNull();
+    });
+
+    test('checks health through /v3/dataStores when single-tenant', async () => {
+      const client = createClient();
+      await createConfigurationServiceDataStoreProvider({ client, encryptionKey: vectors.key }).checkHealth();
+      expect(client.getDataStores).toHaveBeenCalledWith(null);
+      expect(client.getTenants).not.toHaveBeenCalled();
+    });
+
+    // Multi-tenant CMS answers 400 to /v3/dataStores without a Tenant header
+    test('checks health through /v3/tenants when multi-tenant', async () => {
+      const client = createClient();
+      await createConfigurationServiceDataStoreProvider({ client, encryptionKey: vectors.key, multiTenancyEnabled: true }).checkHealth();
+      expect(client.getTenants).toHaveBeenCalledTimes(1);
+      expect(client.getDataStores).not.toHaveBeenCalled();
+    });
+
+    test('fails the multi-tenant health check when CMS has no /v3/tenants', async () => {
+      const client = { ...createClient(), getTenants: jest.fn(async () => null) };
+      const provider = createConfigurationServiceDataStoreProvider({ client, encryptionKey: vectors.key, multiTenancyEnabled: true });
+      await expect(provider.checkHealth()).rejects.toThrow('is it running multi-tenant');
+    });
   });
 
   describe('static DATA_STORES', () => {
@@ -112,6 +167,13 @@ describe('DMS data-store providers', () => {
       await expect(provider.resolveConnectionString({ dataStoreId: 1 })).resolves.toBe('host=localhost;port=5435;database=edfi_datamanagementservice');
       await expect(provider.resolveConnectionString({ dataStoreId: 2 })).resolves.toBe(vectors.plaintext);
       await expect(provider.resolveConnectionString({ dataStoreId: 3 })).rejects.toBeInstanceOf(DataStoreNotFoundError);
+    });
+
+    test('refreshes on the query connection and carries a connection version', async () => {
+      await expect(provider.resolveRefreshConnectionString({ dataStoreId: 1 })).resolves.toBeNull();
+      const [first, second] = await provider.listDataStores();
+      expect(first.connectionVersion).toMatch(/^[0-9a-f]{16}$/);
+      expect(first.connectionVersion).not.toBe(second.connectionVersion);
     });
   });
 });

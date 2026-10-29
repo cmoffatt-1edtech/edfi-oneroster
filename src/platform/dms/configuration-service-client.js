@@ -88,17 +88,30 @@ export class ConfigurationServiceClient {
   }
 
   /**
+   * Drop a token the Configuration Service refused, but only while it is still the cached one: a
+   * late 401 for an old token must not discard the replacement another request already obtained,
+   * or every such response would cost a token (the identity provider allows 15 active tokens).
+   */
+  invalidateToken(token) {
+    if (this.token === token) {
+      this.token = null;
+      this.tokenExpiresAt = 0;
+    }
+  }
+
+  /**
    * GET a Management API path. Retries once with a new token on 401 (revoked or expired early).
    * @returns {Promise<*>} The parsed body, or null on 404
    */
   async get(path, { tenant = null } = {}) {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const headers = { Authorization: `Bearer ${await this.getToken()}` };
+      const token = await this.getToken();
+      const headers = { Authorization: `Bearer ${token}` };
       if (tenant) headers.Tenant = tenant;
 
       const res = await this.fetch(joinUrl(this.baseUrl, path), { headers });
       if (res.status === 401 && attempt === 0) {
-        this.token = null;
+        this.invalidateToken(token);
         continue;
       }
       if (res.status === 404) return null;

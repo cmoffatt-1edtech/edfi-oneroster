@@ -21,7 +21,10 @@
  * Usage:
  *   node standard/deploy-dms.js --connection "host=...;port=5432;username=...;password=...;database=..."
  *   Options:
- *     --check                 Validate only: resolve, check tables, apply in a rolled-back transaction.
+ *     --check                 Validate only: resolve, check tables, then run the whole deployment
+ *                             (drop, create and fill the views) in a transaction that is rolled
+ *                             back. Nothing is kept, but it needs the privileges of a deployment,
+ *                             and queries on existing oneroster12 views wait until it finishes.
  *     --only orgs,users       Deploy these projections only (file names without .sql).
  *     --jobs-database <name>  Also create this database for the pg-boss queue if it is missing.
  *   The connection string can come from DMS_DATA_STORE_CONNECTION instead of --connection.

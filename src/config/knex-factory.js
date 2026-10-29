@@ -112,8 +112,11 @@ class KnexManager extends EventEmitter {
   /**
    * Create Knex instance connected to the ODS database using dynamically resolved connection string
    * This is used after resolving the ODS connection from EdFi_Admin.OdsInstances table
+   * @param {Object} [options]
+   * @param {boolean} [options.refresh=true] - Register the instance for the materialized-view
+   *   refresh. False for a DMS read-replica query pool, whose primary is registered separately.
    */
-  createOdsInstance(dbType, connectionString, odsInstanceId, cacheKey = null) {
+  createOdsInstance(dbType, connectionString, odsInstanceId, cacheKey = null, { refresh = true } = {}) {
 
     const instanceKey = cacheKey || `odsinstance-${odsInstanceId}`;
 
@@ -146,16 +149,37 @@ class KnexManager extends EventEmitter {
 
     // Cache the instance
     this.instances.set(instanceKey, odsInstance);
-    this.odsInstanceMeta.set(instanceKey, { dbType });
+    if (refresh) {
+      this.odsInstanceMeta.set(instanceKey, { dbType });
+    }
 
     logger.info(`Created ODS instance for OdsInstanceId ${odsInstanceId}, database: ${connectionConfig.database}`);
 
     // Notify listeners that a new ODS instance is available (only for postgres - mssql uses no materialized views)
-    if (dbType === 'postgres') {
+    if (refresh && dbType === 'postgres') {
       this.emit('ods-instance-registered', { instanceKey, odsInstanceId, knexInstance: odsInstance });
     }
 
     return odsInstance;
+  }
+
+  /**
+   * Stop using an ODS instance: it leaves the cache and the refresh list at once, and its pool is
+   * destroyed after graceMs, so requests that already hold it can finish.
+   */
+  retireOdsInstance(instanceKey, { graceMs = 30_000 } = {}) {
+    const instance = this.instances.get(instanceKey);
+    if (!instance) {
+      return;
+    }
+    this.instances.delete(instanceKey);
+    this.odsInstanceMeta.delete(instanceKey);
+    logger.info(`Retiring ODS instance: ${instanceKey}`);
+
+    const timer = setTimeout(() => {
+      instance.destroy().catch(err => logger.warn({ err, instanceKey }, 'Error destroying a retired ODS instance'));
+    }, graceMs);
+    timer.unref?.();
   }
 
   /**

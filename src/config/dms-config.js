@@ -94,6 +94,16 @@ export function getDmsTokenSettings(env = process.env) {
   };
 }
 
+/**
+ * Where DMS clients get tokens: OAUTH2_TOKEN_URL (usually the DMS /oauth/token, which DMS serves
+ * with or without a tenant and qualifier prefix), else the issuer's /connect/token.
+ */
+export function getDmsTokenUrl(env = process.env) {
+  const { tokenUrl, issuer } = getDmsTokenSettings(env);
+  if (tokenUrl) return tokenUrl;
+  return issuer ? `${issuer.replace(/\/+$/, '')}/connect/token` : null;
+}
+
 /** Configuration Service (CMS) access and data-store settings. */
 export function getDmsDataStoreSettings(env = process.env) {
   const dataStoresJson = trimmed('DATA_STORES', env);

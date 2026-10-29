@@ -11,7 +11,7 @@ import { createTokenVerifier } from './platform/token-verifier.js';
 import { getDataStoreProvider } from './platform/data-store-provider.js';
 import { createDmsDataStoreMiddleware } from './middleware/dmsDataStoreMiddleware.js';
 import { isDmsPlatform } from './config/platform.js';
-import { getDmsTokenSettings } from './config/dms-config.js';
+import { getDmsTokenUrl } from './config/dms-config.js';
 import { extractTenantMiddleware } from './middleware/tenantMiddleware.js';
 import { validateOdsInstanceFlow } from './middleware/odsInstanceValidationMiddleware.js';
 import { isMultiTenancyEnabled } from './config/multi-tenancy-config.js';
@@ -69,9 +69,8 @@ const dmsPlatform = isDmsPlatform();
 
 // Where clients get tokens: the ODS/API's /oauth/token, or on DMS OAUTH2_TOKEN_URL (the DMS
 // /oauth/token proxy, advertised as urls.oauth in the DMS discovery document).
-const dmsTokenSettings = dmsPlatform ? getDmsTokenSettings() : null;
 const tokenUrl = dmsPlatform
-  ? (dmsTokenSettings.tokenUrl || joinUrl(dmsTokenSettings.issuer, 'connect/token'))
+  ? getDmsTokenUrl()
   : joinUrl(process.env.OAUTH2_ISSUERBASEURL, 'oauth/token');
 
 const file = fs.readFileSync('./config/swagger.yml', 'utf8');

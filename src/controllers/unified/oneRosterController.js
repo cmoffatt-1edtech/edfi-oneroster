@@ -115,7 +115,7 @@ async function doOneRosterEndpointMany(req, res, endpoint, config, extraWhere = 
 
     try {
         // Get database service with two-level resolution (tenant + ODS instance + context)
-        const dbService = await getDefaultDatabaseService(req.tenantId, req.odsInstanceId, req.odsCacheKey);
+        const dbService = await getDefaultDatabaseService(req.tenantId, req.odsInstanceId, req.odsCacheKey, req.odsConnectionVersion);
         // Get education organization IDs from token for authorization filtering
         const educationOrgIds = req.educationOrgIds || [];
 
@@ -180,7 +180,7 @@ async function doOneRosterEndpointOne(req, res, endpoint, config, extraWhere = n
 
     try {
         // Get database service with two-level resolution (tenant + ODS instance + context)
-        const dbService = await getDefaultDatabaseService(req.tenantId, req.odsInstanceId, req.odsCacheKey);
+        const dbService = await getDefaultDatabaseService(req.tenantId, req.odsInstanceId, req.odsCacheKey, req.odsConnectionVersion);
 
         // Get education organization IDs from token for authorization filtering
         const educationOrgIds = req.educationOrgIds || [];

@@ -18,7 +18,9 @@ import { getLogger } from '../utils/logger.js';
  *    is 404 (after one reload from the Configuration Service); more than one is 400.
  *
  * On success it sets req.tenantId, req.odsInstanceId (the data-store id) and req.odsCacheKey,
- * which the controller and DatabaseServiceFactory use on both platforms.
+ * which the controller and DatabaseServiceFactory use on both platforms, and
+ * req.odsConnectionVersion (DMS only), so a connection changed in the Configuration Service
+ * replaces the cached service.
  */
 
 const logger = getLogger('DmsDataStoreMiddleware');
@@ -101,6 +103,7 @@ export function createDmsDataStoreMiddleware({ provider, multiTenancyEnabled, ro
       req.tenantId = tenantId;
       req.odsInstanceId = dataStoreId;
       req.odsCacheKey = tenantId ? `tenant-${tenantId}-datastore-${dataStoreId}` : `datastore-${dataStoreId}`;
+      req.odsConnectionVersion = matches[0].connectionVersion || null;
       logger.debug(`Resolved data store ${dataStoreId}`);
       next();
     } catch (error) {

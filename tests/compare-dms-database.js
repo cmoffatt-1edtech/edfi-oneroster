@@ -14,6 +14,10 @@
  * the ODS, participantDocumentId/studentDocumentId on DMS). Arrays that hold the same elements in
  * another order are reported separately as order-only differences.
  *
+ * The schemas are compared from the catalog, so an empty view is still checked: a column on one
+ * side only, or with another type, is a difference. So is a sourcedId that appears more than once
+ * on either side, which matching by sourcedId would otherwise hide.
+ *
  * ODS rows of excluded education organizations (default 5,6,7: the TPDM sample schools the ODS
  * sandbox carries and the DMS Populated template does not) are dropped before comparing.
  *
@@ -74,21 +78,43 @@ export function compareValues(odsValue, dmsValue) {
   return 'value';
 }
 
-export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5 } = {}) {
+/** sourcedIds that appear more than once. */
+function duplicateIds(rows) {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const row of rows) {
+    (seen.has(row.sourcedId) ? duplicates : seen).add(row.sourcedId);
+  }
+  return [...duplicates];
+}
+
+/** Every column name in the rows (not only the first row's), for callers without the catalog. */
+function rowColumns(rows) {
+  return [...new Set(rows.flatMap(row => Object.keys(row)))];
+}
+
+/**
+ * @param {Object} [options]
+ * @param {{ods: string[], dms: string[]}} [options.columns] - Column names from the catalog. Without
+ *   them the columns found in the rows are used, which says nothing about an empty view.
+ */
+export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5, columns: catalogColumns = null } = {}) {
   const excludedSet = new Set(excluded.map(String));
   const kept = odsRows.filter(row => !excludedSet.has(String(row.educationOrganizationId)));
   const ods = new Map(kept.map(row => [row.sourcedId, row]));
   const dms = new Map(dmsRows.map(row => [row.sourcedId, row]));
 
-  const odsColumns = Object.keys(odsRows[0] || {});
-  const dmsColumns = Object.keys(dmsRows[0] || {});
+  const odsColumns = catalogColumns?.ods ?? rowColumns(odsRows);
+  const dmsColumns = catalogColumns?.dms ?? rowColumns(dmsRows);
   const columns = odsColumns.filter(column => dmsColumns.includes(column) && !IGNORED_COLUMNS.has(column));
+  const duplicates = { ods: duplicateIds(kept), dms: duplicateIds(dmsRows) };
 
   const result = {
     odsRows: odsRows.length,
     excludedRows: odsRows.length - kept.length,
     dmsRows: dmsRows.length,
     duplicateSourcedIds: { ods: kept.length - ods.size, dms: dmsRows.length - dms.size },
+    duplicateIds: { ods: duplicates.ods.slice(0, samples), dms: duplicates.dms.slice(0, samples) },
     columnsOnlyOds: odsColumns.filter(c => !dmsColumns.includes(c) && !IGNORED_COLUMNS.has(c)),
     columnsOnlyDms: dmsColumns.filter(c => !odsColumns.includes(c) && !IGNORED_COLUMNS.has(c)),
     onlyOds: [...ods.keys()].filter(id => !dms.has(id)),
@@ -122,6 +148,17 @@ export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5 } = {
   }
 
   return result;
+}
+
+/**
+ * Differences in one view's result that fail the run: rows on one side only, rows that differ,
+ * repeated sourcedIds, columns on one side only and column type differences. Order-only array
+ * differences are reported but don't count.
+ */
+export function unexplainedCount(result) {
+  return result.onlyOds.length + result.onlyDms.length + (result.matched - result.identical) +
+    result.duplicateSourcedIds.ods + result.duplicateSourcedIds.dms +
+    result.columnsOnlyOds.length + result.columnsOnlyDms.length + (result.typeDiffs?.length || 0);
 }
 
 async function connect(connectionString) {
@@ -162,18 +199,21 @@ async function main() {
         columnTypes(ods, view),
         columnTypes(dms, view)
       ]);
-      const result = compareRows(odsRows, dmsRows, args);
+      const result = compareRows(odsRows, dmsRows, {
+        ...args,
+        columns: { ods: Object.keys(odsTypes), dms: Object.keys(dmsTypes) }
+      });
       result.typeDiffs = Object.keys(odsTypes)
         .filter(column => dmsTypes[column] && dmsTypes[column] !== odsTypes[column] && !PERSON_KEY_COLUMNS.has(column))
         .map(column => `${column}: ${odsTypes[column]} -> ${dmsTypes[column]}`);
       report.views[view] = result;
 
-      const diffRows = result.matched - result.identical;
-      unexplained += result.onlyOds.length + result.onlyDms.length + diffRows + result.typeDiffs.length;
+      unexplained += unexplainedCount(result);
       console.log(`\n${view}: ODS ${result.odsRows} (excluded ${result.excludedRows}), DMS ${result.dmsRows}; ` +
         `matched ${result.matched}, identical ${result.identical}, only ODS ${result.onlyOds.length}, only DMS ${result.onlyDms.length}`);
       if (result.duplicateSourcedIds.ods || result.duplicateSourcedIds.dms) {
         console.log(`  duplicate sourcedIds: ODS ${result.duplicateSourcedIds.ods}, DMS ${result.duplicateSourcedIds.dms}`);
+        for (const id of [...result.duplicateIds.ods, ...result.duplicateIds.dms]) console.log(`    ${id}`);
       }
       if (result.columnsOnlyOds.length) console.log(`  columns only on ODS: ${result.columnsOnlyOds.join(', ')}`);
       if (result.columnsOnlyDms.length) console.log(`  columns only on DMS: ${result.columnsOnlyDms.join(', ')}`);

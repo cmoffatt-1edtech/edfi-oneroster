@@ -30,6 +30,8 @@ param(
     $EnvFile = "dms/.env.dms"
 )
 
+$ErrorActionPreference = "Stop"
+
 $scriptDir = $PSScriptRoot
 if (-not $scriptDir) {
     $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -50,11 +52,17 @@ if ($Purge) {
 
 try {
     & docker @composeArgs
+    $exitCode = $LASTEXITCODE
 }
 finally {
     if ($temporaryEnvFile) {
         Remove-Item -LiteralPath $envFilePath -ErrorAction SilentlyContinue
     }
+}
+
+# A wipe after a failed stop would remove the network under a running container
+if ($exitCode -ne 0) {
+    throw "docker compose down failed (exit code $exitCode); the OneRoster DMS service may still be running."
 }
 
 Write-Host "OneRoster DMS service stopped." -ForegroundColor Green

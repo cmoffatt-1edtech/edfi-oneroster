@@ -61,6 +61,15 @@ describe('createDmsDataStoreMiddleware', () => {
     expect(req.tenantId).toBeNull();
   });
 
+  test('passes on the data store connection version, so a changed connection replaces the service', async () => {
+    const middleware = createDmsDataStoreMiddleware({
+      provider: createProvider([[{ ...store(1), connectionVersion: 'abc123' }]]), multiTenancyEnabled: false, routeContext: null
+    });
+    const { req } = await run(middleware);
+
+    expect(req.odsConnectionVersion).toBe('abc123');
+  });
+
   test('answers 403 when the token authorizes no data stores', async () => {
     const middleware = createDmsDataStoreMiddleware({ provider: createProvider([[store(1)]]), multiTenancyEnabled: false, routeContext: null });
     const { res, next } = await run(middleware, { payload: { dataStoreIds: '' } });

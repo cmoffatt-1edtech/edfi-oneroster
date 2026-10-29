@@ -10,6 +10,7 @@
  * For each pair of equivalent clients (LEA, School) it pages every collection on both services,
  * fetches a sample of single items, and compares the bodies item by item, ignoring
  * dateLastModified. Arrays holding the same elements in another order are reported separately.
+ * A sourcedId that appears more than once in a collection, on either side, is a difference.
  * ODS items tied to the excluded education organizations (default 5,6,7: the TPDM sample schools)
  * are dropped first. Also compares the status and body of a few error responses.
  *
@@ -159,6 +160,46 @@ function withoutTimestamp(item) {
   return rest;
 }
 
+/** sourcedIds that appear more than once in a collection, with how often. */
+function repeatedIds(items) {
+  const counts = new Map();
+  for (const item of items) counts.set(item.sourcedId, (counts.get(item.sourcedId) || 0) + 1);
+  return [...counts].filter(([, count]) => count > 1);
+}
+
+/**
+ * Compare one collection item by item. A sourcedId that appears more than once on either side is a
+ * difference of its own ('duplicate on ODS' / 'duplicate on DMS'); matching by sourcedId alone
+ * would hide it.
+ * @returns {{ row: Object, diffs: Object[] }}
+ */
+export function compareCollection(label, odsItems, dmsItems) {
+  const diffs = [];
+  const odsById = new Map(odsItems.map(item => [item.sourcedId, withoutTimestamp(item)]));
+  const dmsById = new Map(dmsItems.map(item => [item.sourcedId, withoutTimestamp(item)]));
+  const row = { label, ods: odsItems.length, dms: dmsItems.length, identical: 0, orderOnly: 0, differ: 0, onlyOds: 0, onlyDms: 0, duplicates: 0 };
+  for (const [side, items] of [['ODS', odsItems], ['DMS', dmsItems]]) {
+    for (const [id, count] of repeatedIds(items)) {
+      row.duplicates++;
+      diffs.push({ label, sourcedId: id, kind: `duplicate on ${side}`, count });
+    }
+  }
+  for (const [id, item] of odsById) {
+    if (!dmsById.has(id)) { row.onlyOds++; diffs.push({ label, sourcedId: id, kind: 'only ODS' }); continue; }
+    const other = dmsById.get(id);
+    if (canonical(item, false) === canonical(other, false)) row.identical++;
+    else if (canonical(item, true) === canonical(other, true)) row.orderOnly++;
+    else { row.differ++; diffs.push({ label, sourcedId: id, kind: 'differs', ods: item, dms: other }); }
+  }
+  for (const id of dmsById.keys()) {
+    if (!odsById.has(id)) { row.onlyDms++; diffs.push({ label, sourcedId: id, kind: 'only DMS' }); }
+  }
+  // Same items, so the order of the collection itself should match too (stable paging, #133)
+  row.sameOrder = canonical([...odsById.keys()].filter(id => dmsById.has(id)), false) ===
+    canonical([...dmsById.keys()].filter(id => odsById.has(id)), false);
+  return { row, diffs };
+}
+
 /** Whether an ODS item belongs to an excluded education organization. */
 function isExcluded(item, excludedOrgs, excludedUsers) {
   if (excludedOrgs.has(item.sourcedId) || excludedUsers.has(item.sourcedId)) return true;
@@ -193,23 +234,9 @@ export async function runOdsVsDms(argv) {
   let requests = 0;
 
   const compareBodies = (label, odsItems, dmsItems) => {
-    const odsById = new Map(odsItems.map(item => [item.sourcedId, withoutTimestamp(item)]));
-    const dmsById = new Map(dmsItems.map(item => [item.sourcedId, withoutTimestamp(item)]));
-    const row = { label, ods: odsItems.length, dms: dmsItems.length, identical: 0, orderOnly: 0, differ: 0, onlyOds: 0, onlyDms: 0 };
-    for (const [id, item] of odsById) {
-      if (!dmsById.has(id)) { row.onlyOds++; diffs.push({ label, sourcedId: id, kind: 'only ODS' }); continue; }
-      const other = dmsById.get(id);
-      if (canonical(item, false) === canonical(other, false)) row.identical++;
-      else if (canonical(item, true) === canonical(other, true)) row.orderOnly++;
-      else { row.differ++; diffs.push({ label, sourcedId: id, kind: 'differs', ods: item, dms: other }); }
-    }
-    for (const id of dmsById.keys()) {
-      if (!odsById.has(id)) { row.onlyDms++; diffs.push({ label, sourcedId: id, kind: 'only DMS' }); }
-    }
-    // Same items, so the order of the collection itself should match too (stable paging, #133)
-    row.sameOrder = canonical([...odsById.keys()].filter(id => dmsById.has(id)), false) ===
-      canonical([...dmsById.keys()].filter(id => odsById.has(id)), false);
-    summary.push(row);
+    const result = compareCollection(label, odsItems, dmsItems);
+    summary.push(result.row);
+    diffs.push(...result.diffs);
   };
 
   // users first, so demographics can be excluded by the excluded students' sourcedIds
@@ -272,9 +299,9 @@ export async function runOdsVsDms(argv) {
     if (a.status !== 403 || canonical(a, false) !== canonical(b, false)) diffs.push({ label: 'error: core scope on demographics', kind: 'error response differs', ods: a, dms: b });
   }
 
-  console.log(`${'collection'.padEnd(22)} ${'ODS'.padStart(6)} ${'DMS'.padStart(6)} ${'same'.padStart(6)} order-only differ onlyODS onlyDMS sameOrder`);
+  console.log(`${'collection'.padEnd(22)} ${'ODS'.padStart(6)} ${'DMS'.padStart(6)} ${'same'.padStart(6)} order-only differ onlyODS onlyDMS dupes sameOrder`);
   for (const r of summary) {
-    console.log(`${r.label.padEnd(22)} ${String(r.ods).padStart(6)} ${String(r.dms).padStart(6)} ${String(r.identical).padStart(6)} ${String(r.orderOnly).padStart(10)} ${String(r.differ).padStart(6)} ${String(r.onlyOds).padStart(7)} ${String(r.onlyDms).padStart(7)} ${r.sameOrder}`);
+    console.log(`${r.label.padEnd(22)} ${String(r.ods).padStart(6)} ${String(r.dms).padStart(6)} ${String(r.identical).padStart(6)} ${String(r.orderOnly).padStart(10)} ${String(r.differ).padStart(6)} ${String(r.onlyOds).padStart(7)} ${String(r.onlyDms).padStart(7)} ${String(r.duplicates).padStart(5)} ${r.sameOrder}`);
   }
   const known = args.known ? JSON.parse(fs.readFileSync(args.known, 'utf8')).differences : [];
   const { explained, unexplained } = partitionDifferences(diffs, known);

@@ -11,11 +11,47 @@ import {
 } from '../config/ods-context-config.js';
 import { getExternalBaseUrl } from '../utils/urlHelper.js';
 import { isSwaggerUiEnabled, isOpenApiMetadataEnabled } from '../config/api-docs.js';
+import { isDmsPlatform } from '../config/platform.js';
+import { getRouteContextConfig } from '../config/route-context-config.js';
+import { getDmsTokenUrl } from '../config/dms-config.js';
+
+/**
+ * Ed-Fi API v8 (DMS): the route prefix is the tenant and the ROUTE_QUALIFIER_SEGMENTS values, each
+ * taken from the request or left as a {placeholder}, as in the DMS discovery document. Tokens come
+ * from the one OAUTH2_TOKEN_URL.
+ */
+function getDmsDiscovery(req) {
+  const value = (name, placeholder) => (req.params[name] ? encodeURIComponent(req.params[name]) : `{${placeholder}}`);
+  const segments = [];
+  if (isMultiTenancyEnabled()) {
+    segments.push(value('tenantId', 'tenantIdentifier'));
+  }
+  for (const name of getRouteContextConfig()?.parameterNames || []) {
+    segments.push(value(name, name));
+  }
+  const prefix = [getExternalBaseUrl(req).replace(/\/$/, ''), ...segments].join('/');
+
+  const urls = {};
+  if (isOpenApiMetadataEnabled()) {
+    urls.openApiMetadata = `${prefix}/swagger.json`;
+  }
+  if (isSwaggerUiEnabled()) {
+    urls.swaggerUI = `${prefix}/docs`;
+  }
+  urls.oauth = getDmsTokenUrl();
+  urls.dataManagementApi = `${prefix}/ims/oneroster/rostering/v1p2/`;
+
+  return { version: '1.0.0', urls };
+}
 
 /**
  * Get discovery response with populated URLs
  */
 export function getDiscovery(req, res) {
+  if (isDmsPlatform()) {
+    return res.json(getDmsDiscovery(req));
+  }
+
   const baseUrl = getExternalBaseUrl(req);
   const multiTenancyEnabled = isMultiTenancyEnabled();
   const contextConfig = getOdsContextConfig();

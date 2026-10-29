@@ -3,8 +3,8 @@
 // 1EdTech Consortium, Inc. licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
-import { describe, test, expect } from '@jest/globals';
-import { settingsFromEnvFiles, partitionDifferences } from '../compare-api-ods-dms.js';
+import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import { settingsFromEnvFiles, partitionDifferences, compareCollection, runOdsVsDms } from '../compare-api-ods-dms.js';
 
 const odsEnvText = [
   'BASE_URL=https://localhost/',
@@ -81,5 +81,73 @@ describe('partitionDifferences', () => {
 
   test('no known differences leaves everything unexplained', () => {
     expect(partitionDifferences(diffs).unexplained).toHaveLength(4);
+  });
+});
+
+describe('compareCollection', () => {
+  const user = id => ({ sourcedId: id, givenName: id, dateLastModified: '2026-10-28T00:00:00.000Z' });
+
+  test('identical collections have no differences', () => {
+    const { row, diffs } = compareCollection('lea users', [user('a'), user('b')], [user('b'), user('a')]);
+    expect(diffs).toEqual([]);
+    expect(row).toMatchObject({ identical: 2, duplicates: 0, sameOrder: false });
+  });
+
+  test('a sourcedId repeated on either side is a difference, though the items match', () => {
+    const { row, diffs } = compareCollection('lea users', [user('a'), user('b')], [user('a'), user('a'), user('b')]);
+    expect(row.duplicates).toBe(1);
+    expect(diffs).toEqual([{ label: 'lea users', sourcedId: 'a', kind: 'duplicate on DMS', count: 2 }]);
+
+    const ods = compareCollection('lea users', [user('a'), user('a')], [user('a')]);
+    expect(ods.diffs.map(d => d.kind)).toEqual(['duplicate on ODS']);
+  });
+});
+
+// The whole runner against fake services that agree except for one repeated DMS user
+describe('runOdsVsDms', () => {
+  const ENV = {
+    ODS_ONEROSTER_URL: 'http://ods', ODS_TOKEN_URL: 'http://ods-auth/oauth/token',
+    ODS_LEA_KEY: 'k', ODS_LEA_SECRET: 's', ODS_SCHOOL_KEY: 'k', ODS_SCHOOL_SECRET: 's',
+    DMS_ONEROSTER_URL: 'http://dms', DMS_TOKEN_URL: 'http://dms-auth/oauth/token',
+    DMS_LEA_KEY: 'k', DMS_LEA_SECRET: 's', DMS_SCHOOL_KEY: 'k', DMS_SCHOOL_SECRET: 's'
+  };
+  const user = { sourcedId: 'u1', givenName: 'A' };
+  let originalEnv;
+  let originalFetch;
+
+  function serve(dmsUsers) {
+    global.fetch = jest.fn(async url => {
+      if (url.endsWith('/oauth/token')) {
+        return { ok: true, status: 200, json: async () => ({ access_token: 't' }) };
+      }
+      const path = new URL(url).pathname.split('/rostering/v1p2/')[1];
+      const body = path === 'users' ? { users: url.startsWith('http://dms') ? dmsUsers : [user] } : {};
+      return { status: 200, headers: { get: () => null }, text: async () => JSON.stringify(body) };
+    });
+  }
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+    originalFetch = global.fetch;
+    delete process.env.DMS_CORE_KEY;
+    Object.assign(process.env, ENV);
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+    Object.keys(process.env).forEach(k => { if (!(k in originalEnv)) delete process.env[k]; });
+    Object.assign(process.env, originalEnv);
+  });
+
+  test('passes when the services agree', async () => {
+    serve([user]);
+    await expect(runOdsVsDms([])).resolves.toBe(0);
+  });
+
+  test('fails when DMS returns a user twice', async () => {
+    serve([user, user]);
+    await expect(runOdsVsDms([])).resolves.toBe(1);
   });
 });
