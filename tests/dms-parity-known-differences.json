@@ -1,0 +1,25 @@
+{
+  "description": "ODS-vs-DMS API differences already explained, for node tests/compare-api.js ods-vs-dms --known. Valid for the local stacks: the ODS/API sandbox (Grand Bend plus the TPDM UT Austin sample) and DMS loaded with the Populated template. See docs/design/dms-parity-report.md.",
+  "differences": [
+    {
+      "label": "lea users",
+      "kind": "only DMS",
+      "sourcedIds": [
+        "096174f35ca3d76b763e355be25c549e",
+        "1763a4676b1bb47a5597c0db3934afac",
+        "52ef7a6549a4bfb6523ac38d6c832718",
+        "57bdceb9344a3569352757f429198a51",
+        "5b25e47163bfe694749c60b1806e73bd",
+        "8c05e837247aab22af59ad99efbff25f",
+        "8d210c934afea7dd8d0d3ca953f773bc",
+        "a38bdc73812fce6060c1b91c90d571df",
+        "b1260aaec41e8881326c3c09799b37db",
+        "b71ade7b6a98ad3ca6184f72a1857638",
+        "cb5544b787221b8ec56625962646adbc",
+        "d2dc8d2c3a7f7865c127c6ea5233fbcc",
+        "f941455196e76e8b3e0e04fdb0af57a1"
+      ],
+      "reason": "12 staff and 1 contact with no school (null educationOrganizationId). The #133 full-access short-circuit returns them on DMS, where the LEA reaches every served org; on the ODS the TPDM schools 5/6/7 are served too, so the relationship filter runs and drops them."
+    }
+  ]
+}

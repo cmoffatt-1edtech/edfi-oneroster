@@ -1,0 +1,21 @@
+meta {
+  name: School Token Outside Its Ed-Org (Other School)
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{oneRosterUrl}}/{{rosterPath}}/schools/5643e68db2cfe9bf142de280d85599f9
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dms-school-token}}
+}
+tests {
+  test("status is 404", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+
+}

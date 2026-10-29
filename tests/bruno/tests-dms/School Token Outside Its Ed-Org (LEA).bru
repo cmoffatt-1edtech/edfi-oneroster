@@ -1,0 +1,21 @@
+meta {
+  name: School Token Outside Its Ed-Org (LEA)
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{oneRosterUrl}}/{{rosterPath}}/orgs/68d5a7b8c595bdb53e472ac9585a2e64
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dms-school-token}}
+}
+tests {
+  test("status is 404", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+
+}

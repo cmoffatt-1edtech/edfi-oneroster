@@ -14,6 +14,9 @@
  *   node compare-api.js students          # Test only /students endpoint with DS5
  *   node compare-api.js teachers          # Test only /teachers endpoint with DS5
  *   node compare-api.js parents           # Test only /parents endpoint with DS5
+ *   node compare-api.js ods-vs-dms        # ODS-backed vs DMS-backed service (see compare-api-ods-dms.js)
+ *   node compare-api.js dms-record        # Record a DMS-backed service's responses (same module)
+ *   node compare-api.js dms-vs-recording  # Compare a DMS-backed service with a recording
  */
 
 import https from 'https';
@@ -22,6 +25,14 @@ import { URL, fileURLToPath } from 'url';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+
+// ODS-vs-DMS and DMS-vs-recording parity (Ed-Fi API v8) live in their own module:
+// node tests/compare-api.js ods-vs-dms | dms-record | dms-vs-recording
+const DMS_MODES = { 'ods-vs-dms': 'runOdsVsDms', 'dms-record': 'runDmsRecord', 'dms-vs-recording': 'runDmsVsRecording' };
+if (Object.prototype.hasOwnProperty.call(DMS_MODES, process.argv[2])) {
+    const dmsParity = await import('./compare-api-ods-dms.js');
+    process.exit(await dmsParity[DMS_MODES[process.argv[2]]](process.argv.slice(3)));
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

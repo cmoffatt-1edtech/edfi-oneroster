@@ -1,0 +1,16 @@
+meta {
+  name: dms auth and routing
+  seq: 3
+}
+
+docs {
+  # Ed-Fi API v8 (DMS) authorization checks
+
+  Run with the dms environment after the main collection:
+  `bru run tests -r --env-file environments/dms.bru && bru run tests-dms -r --env-file environments/dms.bru`
+
+  Each request gets its own tokens from the DMS token endpoint (one per client per run; the
+  self-contained identity provider allows 15 active tokens per client). Wrong-audience and
+  expired tokens need the Configuration Service's signing key to mint, so they are covered by
+  tests/unit-tests/token-verifier.test.js instead.
+}

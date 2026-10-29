@@ -1,0 +1,29 @@
+meta {
+  name: Malformed Token
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{oneRosterUrl}}/{{rosterPath}}/orgs
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dms-bad-token}}
+}
+script:pre-request {
+  bru.setEnvVar('dms-bad-token', 'not.a.token');
+}
+
+tests {
+  test("status is 401", function() {
+    expect(res.getStatus()).to.equal(401);
+  });
+
+  test("imsx failure envelope", function() {
+    expect(res.getBody().imsx_codeMajor).to.equal("failure");
+    expect(res.getBody().imsx_description).to.contain("Invalid or expired token");
+  });
+}

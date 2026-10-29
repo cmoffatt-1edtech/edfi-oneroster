@@ -1,0 +1,33 @@
+meta {
+  name: Tampered Signature
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{oneRosterUrl}}/{{rosterPath}}/orgs
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dms-tampered-token}}
+}
+script:pre-request {
+  // Change one character of the LEA token's signature
+  const parts = bru.getEnvVar('dms-lea-token').split('.');
+  const sig = parts[2];
+  parts[2] = sig.slice(0, -2) + (sig.slice(-2, -1) === 'A' ? 'B' : 'A') + sig.slice(-1);
+  bru.setEnvVar('dms-tampered-token', parts.join('.'));
+}
+
+tests {
+  test("status is 401", function() {
+    expect(res.getStatus()).to.equal(401);
+  });
+
+  test("imsx failure envelope", function() {
+    expect(res.getBody().imsx_codeMajor).to.equal("failure");
+    expect(res.getBody().imsx_description).to.contain("Invalid or expired token");
+  });
+}
