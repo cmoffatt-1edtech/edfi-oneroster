@@ -19,6 +19,10 @@
  * Usage:
  *   node standard/dms/build-name-map.js --manifest <relational-model.pgsql.manifest.json> \
  *     --artifacts standard/5.2.0/artifacts/dms-pgsql
+ *   node standard/dms/build-name-map.js --manifest <relational-model.mssql.manifest.json> \
+ *     --artifacts standard/5.2.0/artifacts/dms-mssql
+ * Use the manifest of the artifact set's engine: the map records its dialect, and deploy-dms.js
+ * refuses a map built for the other engine.
  */
 
 import fs from 'fs';
@@ -34,6 +38,16 @@ export function listArtifactFiles(artifactsDir) {
     .filter(file => file.toLowerCase().endsWith('.sql'))
     .sort((a, b) => a.localeCompare(b))
     .map(file => path.join(coreDir, file));
+}
+
+/** SQL Server only: the orchestration scripts (master refresh, Agent job), run after the projections. */
+export function listOrchestrationFiles(artifactsDir) {
+  const orchestrationDir = path.join(artifactsDir, 'orchestration');
+  if (!fs.existsSync(orchestrationDir)) return [];
+  return fs.readdirSync(orchestrationDir)
+    .filter(file => file.toLowerCase().endsWith('.sql'))
+    .sort((a, b) => a.localeCompare(b))
+    .map(file => path.join(orchestrationDir, file));
 }
 
 /** The distinct placeholder keys ("Project/Resource/scope") used in the given SQL texts. */

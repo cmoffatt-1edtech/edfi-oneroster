@@ -301,6 +301,27 @@ run. The only one is 13 LEA users that DMS returns; the parity report explains
 them. Exit code 0 means no unexplained differences. Expected: 270 requests,
 13 differences, 13 known, 0 unexplained.
 
+### DMS on SQL Server against DMS on PostgreSQL (`dms-record`, `dms-vs-recording`)
+
+The two DMS stacks use the same container names, so only one runs at a time. Record the
+service on one engine, switch stacks, then compare the other engine with the recording:
+
+```bash
+# On the PostgreSQL DMS stack
+node tests/compare-api.js dms-record --dms-env stack/dms/.env.dms-clients \
+  --out /tmp/dms-pgsql.recording.json --name PostgreSQL
+# ...switch to the SQL Server DMS stack (stack/dms/README.md, "SQL Server")...
+node tests/compare-api.js dms-vs-recording --dms-env stack/dms/.env.dms-clients.mssql \
+  --recording /tmp/dms-pgsql.recording.json --name "SQL Server"
+```
+
+The recording holds every response the comparison uses (collections paged in full for the LEA
+and School clients, three items each by id, the error cases and the roster-core case), with no
+credentials; it is written with mode 600 because it holds the sample data. The comparison
+fetches the same items and reports differences as `ods-vs-dms` does, with no excluded
+education organizations. Expected on Grand Bend: 135 requests, 0 differences. Both stacks must
+hold the same data: the same seed, plus the OneRoster descriptors.
+
 ### Database parity
 
 ```bash

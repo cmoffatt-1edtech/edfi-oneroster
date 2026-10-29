@@ -5,28 +5,37 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 /**
- * Deploy the OneRoster projections (schema oneroster12) into an Ed-Fi API v8 (DMS) data store.
+ * Deploy the OneRoster projections (schema oneroster12) into an Ed-Fi API v8 (DMS) data store,
+ * on PostgreSQL (materialized views) or SQL Server (tables filled by sp_refresh_* procedures and a
+ * SQL Server Agent job).
  *
  * 1. Reads dms."EffectiveSchema" and dms."SchemaComponent" to pick the artifact set
- *    (standard/<Ed-Fi data standard>/artifacts/dms-pgsql) and the name map built for this exact
- *    effective schema (see dms/build-name-map.js). Refuses to deploy when none matches.
+ *    (standard/<Ed-Fi data standard>/artifacts/dms-pgsql or dms-mssql) and the name map built for
+ *    this exact effective schema and engine (see dms/build-name-map.js). Refuses to deploy when
+ *    none matches.
  * 2. Resolves {{table:...}} placeholders to physical (possibly hash-shortened) table names.
  * 3. Checks that every edfi/dms/auth table or view the artifacts name exists.
  * 4. Applies the artifacts in one transaction, so a bad reference (a renamed column, say) changes
- *    nothing, and primes the materialized views. Rerunning replaces the views.
+ *    nothing, and fills the projections (PostgreSQL: creating the views; SQL Server: running the
+ *    refresh procedures). Rerunning replaces them.
  *
  * DMS provisioning drops and recreates a data store's database when its schema changes, which
  * removes oneroster12: rerun this script after every `ddl provision`.
  *
  * Usage:
  *   node standard/deploy-dms.js --connection "host=...;port=5432;username=...;password=...;database=..."
+ *   node standard/deploy-dms.js --db-type mssql --connection "Server=host,1433;Database=...;User Id=...;Password=..."
  *   Options:
+ *     --db-type <type>        postgres (default) or mssql; DB_TYPE sets it too, as for the service.
  *     --check                 Validate only: resolve, check tables, then run the whole deployment
- *                             (drop, create and fill the views) in a transaction that is rolled
+ *                             (create and fill the projections) in a transaction that is rolled
  *                             back. Nothing is kept, but it needs the privileges of a deployment,
- *                             and queries on existing oneroster12 views wait until it finishes.
- *     --only orgs,users       Deploy these projections only (file names without .sql).
- *     --jobs-database <name>  Also create this database for the pg-boss queue if it is missing.
+ *                             and queries on existing oneroster12 objects wait until it finishes.
+ *     --only orgs,users       Deploy these projections only (file names without .sql). On SQL
+ *                             Server this skips the orchestration (sp_refresh_all and the Agent
+ *                             job).
+ *     --jobs-database <name>  PostgreSQL: also create this database for the pg-boss queue if it is
+ *                             missing.
  *   The connection string can come from DMS_DATA_STORE_CONNECTION instead of --connection.
  *
  *   node standard/deploy-dms.js --from-cms [--data-store <id>] [--tenant <name>]
@@ -34,31 +43,76 @@
  *     CONFIG_SERVICE_URL, CONFIG_SERVICE_CLIENT_ID/_SECRET and CONFIG_SERVICE_ENCRYPTION_KEY, as the
  *     service does. CMS connection strings name hosts on the DMS network, so run it there.
  *   Statements run without a timeout unless DB_REQUEST_TIMEOUT is set.
+ *
+ * SQL Server: the refresh job ("OneRoster 1.2 Refresh (<database>)", daily at 02:00 like the ODS
+ * job) needs SQL Server Agent; the script warns when the Agent isn't running. The login needs
+ * rights to create jobs in msdb.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
+import sql from 'mssql';
 import { parseConnectionString } from '../src/config/multi-tenancy-config.js';
 import { buildPostgresClientOptions } from '../src/config/db-connection.js';
 import { buildRequestTimeoutOptions } from '../src/config/db-timeouts.js';
-import { listArtifactFiles, nameMapFileName, PLACEHOLDER_PATTERN } from './dms/build-name-map.js';
+import { buildMssqlTlsOptions } from '../src/config/mssql-tls.js';
+import { listArtifactFiles, listOrchestrationFiles, nameMapFileName, PLACEHOLDER_PATTERN } from './dms/build-name-map.js';
 import { getDmsDataStoreSettings } from '../src/config/dms-config.js';
 import { ConfigurationServiceClient } from '../src/platform/dms/configuration-service-client.js';
 import { createConfigurationServiceDataStoreProvider } from '../src/platform/dms/data-store-providers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ENGINE_DIR = 'dms-pgsql';
 const SETUP_FILE = '00_setup.sql';
-const REFERENCED_OBJECT_PATTERN = /\b(edfi|dms|auth|tpdm)\."([A-Za-z0-9_]+)"/g;
-const VIEW_PATTERN = /create\s+materialized\s+view\s+(?:if\s+not\s+exists\s+)?oneroster12\.("?)([A-Za-z0-9_]+)\1/gi;
+const SCHEMAS = ['edfi', 'dms', 'auth', 'tpdm'];
+// Refresh order of the ODS master procedure (standard/<ds>/artifacts/mssql/orchestration)
+const REFRESH_ORDER = ['academicsessions', 'orgs', 'courses', 'classes', 'demographics', 'users', 'enrollments'];
+
+function quotePg(identifier) {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function quoteMssql(identifier) {
+  return `[${identifier.replace(/]/g, ']]')}]`;
+}
+
+/**
+ * What differs between the engines. Artifacts name DMS objects quoted the engine's way
+ * (edfi."School" / edfi.[School]), which is how the reference check finds them.
+ */
+export const ENGINES = Object.freeze({
+  postgres: Object.freeze({
+    directory: 'dms-pgsql',
+    dialect: 'pgsql',
+    quote: quotePg,
+    referencePattern: /\b(edfi|dms|auth|tpdm)\."([A-Za-z0-9_]+)"/g,
+    projectionPattern: /create\s+materialized\s+view\s+(?:if\s+not\s+exists\s+)?oneroster12\.("?)([A-Za-z0-9_]+)\1/gi
+  }),
+  mssql: Object.freeze({
+    directory: 'dms-mssql',
+    dialect: 'mssql',
+    quote: quoteMssql,
+    referencePattern: /\b(edfi|dms|auth|tpdm)\.\[([A-Za-z0-9_]+)\]/g,
+    projectionPattern: /create\s+table\s+oneroster12\.(\[?)([A-Za-z0-9_]+)\]?/gi
+  })
+});
+
+function engineFor(dbType) {
+  const engine = ENGINES[dbType];
+  if (!engine) throw new Error(`Unknown database type '${dbType}' (postgres or mssql)`);
+  return engine;
+}
 
 function parseArgs(argv) {
-  const args = { connection: process.env.DMS_DATA_STORE_CONNECTION, check: false, only: null, jobsDatabase: null, fromCms: false, dataStore: null, tenant: null };
+  const args = {
+    connection: process.env.DMS_DATA_STORE_CONNECTION, dbType: process.env.DB_TYPE || 'postgres', check: false, only: null,
+    jobsDatabase: null, fromCms: false, dataStore: null, tenant: null
+  };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case '--connection': args.connection = argv[++i]; break;
+      case '--db-type': args.dbType = argv[++i]; break;
       case '--check': args.check = true; break;
       case '--only': args.only = argv[++i].split(',').map(name => name.trim()).filter(Boolean); break;
       case '--jobs-database': args.jobsDatabase = argv[++i]; break;
@@ -69,22 +123,20 @@ function parseArgs(argv) {
     }
   }
   if (!args.connection && !args.fromCms) throw new Error('Set --connection, DMS_DATA_STORE_CONNECTION or --from-cms');
+  engineFor(args.dbType);
+  if (args.jobsDatabase && args.dbType !== 'postgres') throw new Error('--jobs-database is for PostgreSQL (pg-boss) only');
   return args;
 }
 
-function quotePg(identifier) {
-  return `"${identifier.replace(/"/g, '""')}"`;
-}
-
-export function resolvePlaceholders(sql, nameMap) {
+export function resolvePlaceholders(sqlText, nameMap, quote = quotePg) {
   const unresolved = new Set();
-  const resolved = sql.replace(PLACEHOLDER_PATTERN, (match, project, resource, scope) => {
+  const resolved = sqlText.replace(PLACEHOLDER_PATTERN, (match, project, resource, scope) => {
     const table = nameMap.tables[`${project}/${resource}/${scope}`];
     if (!table) {
       unresolved.add(match);
       return match;
     }
-    return `${table.schema}.${quotePg(table.name)}`;
+    return `${table.schema}.${quote(table.name)}`;
   });
   if (unresolved.size > 0) {
     throw new Error(`No name-map entry for ${[...unresolved].join(', ')}`);
@@ -92,37 +144,110 @@ export function resolvePlaceholders(sql, nameMap) {
   return resolved;
 }
 
-export function findReferencedObjects(sql) {
+export function findReferencedObjects(sqlText, pattern = ENGINES.postgres.referencePattern) {
   const objects = new Set();
-  const code = sql.replace(/--[^\n]*/g, '');
-  for (const [, schema, name] of code.matchAll(REFERENCED_OBJECT_PATTERN)) {
+  const code = sqlText.replace(/--[^\n]*/g, '');
+  for (const [, schema, name] of code.matchAll(pattern)) {
     objects.add(`${schema}.${name}`);
   }
   return [...objects].sort();
 }
 
-export function findMaterializedViews(sql) {
-  return [...sql.matchAll(VIEW_PATTERN)].map(match => match[2]);
+/** The oneroster12 projections a file creates (materialized views; SQL Server: tables). */
+export function findProjections(sqlText, pattern = ENGINES.postgres.projectionPattern) {
+  return [...sqlText.matchAll(pattern)].map(match => match[2]);
 }
 
-async function readTargetSchema(client) {
-  const effective = await client.query('select "EffectiveSchemaHash" as hash from dms."EffectiveSchema"');
-  if (effective.rows.length !== 1) {
+/** Split a SQL Server script into the batches between GO lines. */
+export function splitBatches(sqlText) {
+  return sqlText.split(/^\s*GO\s*$/gim).map(batch => batch.trim()).filter(batch => batch.length > 0);
+}
+
+/**
+ * One connection with what deploy() needs: rows(text) for queries, run(file) for an artifact,
+ * and an explicit transaction. Queries take no parameters; values in them come from the data
+ * store itself.
+ */
+async function openSession(dbType, connection) {
+  const config = parseConnectionString(connection, dbType);
+  if (dbType === 'postgres') {
+    const client = new pg.Client({ ...buildPostgresClientOptions(config), ...buildRequestTimeoutOptions('postgres') });
+    await client.connect();
+    return {
+      database: config.database,
+      rows: async text => (await client.query(text)).rows,
+      run: async text => { await client.query(text); },
+      begin: () => client.query('begin'),
+      commit: () => client.query('commit'),
+      rollback: () => client.query('rollback'),
+      end: () => client.end()
+    };
+  }
+
+  const pool = await new sql.ConnectionPool({
+    server: config.server,
+    port: config.port,
+    database: config.database,
+    user: config.user,
+    password: config.password,
+    options: { ...buildMssqlTlsOptions(config), enableArithAbort: true },
+    connectionTimeout: 30000,
+    ...buildRequestTimeoutOptions('mssql'),
+    pool: { max: 1, min: 0 }
+  }).connect();
+  let transaction = null;
+  const request = () => new sql.Request(transaction || pool);
+  return {
+    database: config.database,
+    rows: async text => (await request().query(text)).recordset || [],
+    run: async text => {
+      for (const batch of splitBatches(text)) await request().batch(batch);
+    },
+    begin: async () => { transaction = new sql.Transaction(pool); await transaction.begin(); },
+    commit: async () => { await transaction.commit(); transaction = null; },
+    // A refresh procedure that fails rolls the whole transaction back itself
+    rollback: async () => {
+      try { await transaction?.rollback(); } catch { /* already rolled back */ }
+      transaction = null;
+    },
+    end: () => pool.close()
+  };
+}
+
+const TARGET_QUERIES = {
+  postgres: {
+    effective: 'select "EffectiveSchemaHash" as hash from dms."EffectiveSchema"',
+    components: hash => `select "ProjectName" as project, "ProjectVersion" as version from dms."SchemaComponent" where "EffectiveSchemaHash" = '${hash}'`,
+    tables: `select table_schema || '.' || table_name as name from information_schema.tables where table_schema in (${SCHEMAS.map(s => `'${s}'`).join(', ')})`,
+    count: name => `select count(*)::int as n from oneroster12.${quotePg(name)}`
+  },
+  mssql: {
+    effective: 'select EffectiveSchemaHash as hash from dms.EffectiveSchema',
+    components: hash => `select ProjectName as project, ProjectVersion as version from dms.SchemaComponent where EffectiveSchemaHash = N'${hash}'`,
+    tables: `select TABLE_SCHEMA + '.' + TABLE_NAME as name from INFORMATION_SCHEMA.TABLES where TABLE_SCHEMA in (${SCHEMAS.map(s => `'${s}'`).join(', ')})`,
+    count: name => `select count(*) as n from oneroster12.${quoteMssql(name)}`
+  }
+};
+
+async function readTargetSchema(session, dbType) {
+  const queries = TARGET_QUERIES[dbType];
+  const effective = await session.rows(queries.effective);
+  if (effective.length !== 1) {
     throw new Error('dms."EffectiveSchema" has no single row: is this a provisioned DMS data store?');
   }
-  const components = await client.query(
-    'select "ProjectName" as project, "ProjectVersion" as version from dms."SchemaComponent" where "EffectiveSchemaHash" = $1',
-    [effective.rows[0].hash]
-  );
-  const core = components.rows.find(row => row.project === 'Ed-Fi');
+  const hash = effective[0].hash;
+  // The hash is hex from the data store; checked before it goes into the query text
+  if (!/^[0-9a-f]{64}$/i.test(hash)) throw new Error(`Unexpected effective schema hash '${hash}'`);
+  const components = await session.rows(queries.components(hash));
+  const core = components.find(row => row.project === 'Ed-Fi');
   if (!core) {
     throw new Error('dms."SchemaComponent" lists no Ed-Fi project');
   }
-  return { hash: effective.rows[0].hash, dataStandard: core.version, components: components.rows };
+  return { hash, dataStandard: core.version, components };
 }
 
-function loadArtifacts(target, only) {
-  const artifactsDir = path.join(__dirname, target.dataStandard, 'artifacts', ENGINE_DIR);
+function loadArtifacts(target, engine, only) {
+  const artifactsDir = path.join(__dirname, target.dataStandard, 'artifacts', engine.directory);
   if (!fs.existsSync(artifactsDir)) {
     throw new Error(`No DMS artifacts for Ed-Fi Data Standard ${target.dataStandard} (${artifactsDir})`);
   }
@@ -135,8 +260,8 @@ function loadArtifacts(target, only) {
     );
   }
   const nameMap = JSON.parse(fs.readFileSync(nameMapFile, 'utf8'));
-  if (nameMap.effectiveSchemaHash !== target.hash || nameMap.dialect !== 'pgsql') {
-    throw new Error(`${nameMapFile} does not match effective schema ${target.hash} (pgsql)`);
+  if (nameMap.effectiveSchemaHash !== target.hash || nameMap.dialect !== engine.dialect) {
+    throw new Error(`${nameMapFile} does not match effective schema ${target.hash} (${engine.dialect})`);
   }
 
   let files = listArtifactFiles(artifactsDir);
@@ -145,19 +270,19 @@ function loadArtifacts(target, only) {
     const unknown = only.filter(name => !files.some(file => path.basename(file) === `${name}.sql`));
     if (unknown.length > 0) throw new Error(`Unknown projection(s): ${unknown.join(', ')}`);
     files = files.filter(file => wanted.has(path.basename(file)));
+  } else {
+    files = [...files, ...listOrchestrationFiles(artifactsDir)];
   }
 
-  return files.map(file => ({ file: path.basename(file), sql: resolvePlaceholders(fs.readFileSync(file, 'utf8'), nameMap) }));
+  return files.map(file => ({
+    file: path.relative(artifactsDir, file),
+    sql: resolvePlaceholders(fs.readFileSync(file, 'utf8'), nameMap, engine.quote)
+  }));
 }
 
-async function checkReferencedObjects(client, artifacts) {
-  const referenced = [...new Set(artifacts.flatMap(({ sql }) => findReferencedObjects(sql)))];
-  const { rows } = await client.query(
-    `select table_schema || '.' || table_name as name from information_schema.tables
-      where table_schema = any($1)`,
-    [[...new Set(referenced.map(name => name.split('.')[0]))]]
-  );
-  const existing = new Set(rows.map(row => row.name));
+async function checkReferencedObjects(session, dbType, engine, artifacts) {
+  const referenced = [...new Set(artifacts.flatMap(({ sql: text }) => findReferencedObjects(text, engine.referencePattern)))];
+  const existing = new Set((await session.rows(TARGET_QUERIES[dbType].tables)).map(row => row.name));
   const missing = referenced.filter(name => !existing.has(name));
   if (missing.length > 0) {
     throw new Error(`Referenced objects missing from the data store: ${missing.join(', ')}`);
@@ -165,40 +290,65 @@ async function checkReferencedObjects(client, artifacts) {
   return referenced.length;
 }
 
-async function applyArtifacts(client, artifacts, { commit }) {
+/** SQL Server: fill the tables, through the master procedure on a full deployment. */
+async function refreshMssql(session, projections, { full }) {
+  const started = Date.now();
+  if (full) {
+    await session.run('exec oneroster12.sp_refresh_all @ForceRefresh = 1');
+  } else {
+    for (const name of REFRESH_ORDER.filter(n => projections.includes(n))) {
+      await session.run(`exec oneroster12.${quoteMssql(`sp_refresh_${name}`)}`);
+    }
+  }
+  return Date.now() - started;
+}
+
+async function applyArtifacts(session, dbType, engine, artifacts, { commit, full }) {
   const timings = [];
-  await client.query('begin');
+  const projections = artifacts.flatMap(({ sql: text }) => findProjections(text, engine.projectionPattern))
+    .filter(name => !name.startsWith('refresh_'));
+  await session.begin();
   try {
-    for (const { file, sql } of artifacts) {
+    for (const { file, sql: text } of artifacts) {
       const started = Date.now();
       try {
-        await client.query(sql);
+        await session.run(text);
       } catch (error) {
         throw new Error(`${file}: ${error.message}`);
       }
       timings.push({ file, ms: Date.now() - started });
     }
-
-    const counts = {};
-    for (const { sql } of artifacts) {
-      for (const view of findMaterializedViews(sql)) {
-        const { rows } = await client.query(`select count(*)::int as n from oneroster12.${quotePg(view)}`);
-        counts[view] = rows[0].n;
-      }
+    if (dbType === 'mssql') {
+      timings.push({ file: full ? 'sp_refresh_all' : 'sp_refresh_*', ms: await refreshMssql(session, projections, { full }) });
     }
 
-    await client.query(commit ? 'commit' : 'rollback');
+    const counts = {};
+    for (const name of projections) {
+      counts[name] = Number((await session.rows(TARGET_QUERIES[dbType].count(name)))[0].n);
+    }
+
+    await (commit ? session.commit() : session.rollback());
     return { timings, counts };
   } catch (error) {
-    await client.query('rollback');
+    await session.rollback();
     throw error;
   }
 }
 
-async function ensureJobsDatabase(client, name) {
-  const { rows } = await client.query('select 1 from pg_database where datname = $1', [name]);
+/** SQL Server: whether SQL Server Agent runs, so the refresh job will. Null when it can't tell. */
+async function mssqlAgentRunning(session) {
+  try {
+    const rows = await session.rows("select count(*) as n from sys.dm_exec_sessions where program_name like N'SQLAgent%'");
+    return Number(rows[0].n) > 0;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureJobsDatabase(session, name) {
+  const rows = await session.rows(`select 1 from pg_database where datname = '${name.replace(/'/g, "''")}'`);
   if (rows.length > 0) return false;
-  await client.query(`create database ${quotePg(name)}`);
+  await session.run(`create database ${quotePg(name)}`);
   return true;
 }
 
@@ -223,7 +373,7 @@ async function dataStoreConnections(args) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  // A deploy builds every view from scratch, which can exceed the API's per-query timeout.
+  // A deploy builds every projection from scratch, which can exceed the API's per-query timeout.
   process.env.DB_REQUEST_TIMEOUT ??= '0';
 
   const targets = args.fromCms ? await dataStoreConnections(args) : [{ label: null, connection: args.connection }];
@@ -234,33 +384,35 @@ async function main() {
 }
 
 async function deploy(args, connection) {
-  const connectionConfig = parseConnectionString(connection, 'postgres');
-  const client = new pg.Client({
-    ...buildPostgresClientOptions(connectionConfig),
-    ...buildRequestTimeoutOptions('postgres')
-  });
-  await client.connect();
+  const engine = engineFor(args.dbType);
+  const session = await openSession(args.dbType, connection);
 
   try {
-    const target = await readTargetSchema(client);
-    console.log(`Data store ${connectionConfig.database}: Ed-Fi ${target.dataStandard} ` +
+    const target = await readTargetSchema(session, args.dbType);
+    console.log(`Data store ${session.database} (${args.dbType}): Ed-Fi ${target.dataStandard} ` +
       `(${target.components.map(c => `${c.project} ${c.version}`).join(', ')}), effective schema ${target.hash.slice(0, 12)}…`);
 
-    const artifacts = loadArtifacts(target, args.only);
-    const objectCount = await checkReferencedObjects(client, artifacts);
+    const artifacts = loadArtifacts(target, engine, args.only);
+    const objectCount = await checkReferencedObjects(session, args.dbType, engine, artifacts);
     console.log(`${artifacts.length} artifact file(s); ${objectCount} referenced edfi/dms/auth objects exist`);
 
-    const { timings, counts } = await applyArtifacts(client, artifacts, { commit: !args.check });
-    for (const { file, ms } of timings) console.log(`  ${file.padEnd(24)} ${String(ms).padStart(6)} ms`);
+    const { timings, counts } = await applyArtifacts(session, args.dbType, engine, artifacts, { commit: !args.check, full: !args.only });
+    for (const { file, ms } of timings) console.log(`  ${file.padEnd(36)} ${String(ms).padStart(6)} ms`);
     for (const [view, n] of Object.entries(counts)) console.log(`  oneroster12.${view.padEnd(18)} ${n} rows`);
     console.log(args.check ? 'Check passed; nothing was changed.' : 'Deployed.');
 
+    if (args.dbType === 'mssql' && !args.check && !args.only && await mssqlAgentRunning(session) === false) {
+      console.log('Warning: SQL Server Agent is not running, so the refresh job will not run. ' +
+        'Enable it (Docker: MSSQL_AGENT_ENABLED=true, or mssql-conf set sqlagent.enabled true) or run ' +
+        'exec oneroster12.sp_refresh_all on a schedule of your own.');
+    }
+
     if (args.jobsDatabase && !args.check) {
-      const created = await ensureJobsDatabase(client, args.jobsDatabase);
+      const created = await ensureJobsDatabase(session, args.jobsDatabase);
       console.log(`pg-boss database ${args.jobsDatabase}: ${created ? 'created' : 'exists'}`);
     }
   } finally {
-    await client.end();
+    await session.end();
   }
 }
 

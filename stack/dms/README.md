@@ -5,9 +5,11 @@ Management Service (DMS) and its Configuration Service (CMS), started from the E
 [Data-Management-Service](https://github.com/Ed-Fi-Alliance-OSS/Data-Management-Service)
 repository. **For development and demos only, not production.**
 
-Supported here: PostgreSQL, Data Standard 5.2, single tenant, the CMS self-contained identity
-provider, and the Populated (Grand Bend) sample data. The service also supports route qualifiers
-and multi-tenant DMS (see `.env.example`), but these scripts don't set them up.
+Supported here: PostgreSQL or SQL Server, Data Standard 5.2 or 6.1, single tenant, the CMS
+self-contained identity provider, and the Populated (Grand Bend) sample data. The service also
+supports route qualifiers and multi-tenant DMS (see `.env.example`), but these scripts don't set
+them up. PostgreSQL and DS 5.2 are the defaults; see [SQL Server](#sql-server) and
+[Data Standard 6.1](#data-standard-61).
 
 ## Prerequisites
 
@@ -69,6 +71,7 @@ the DMS stack's `eng/docker-compose/.env`.
 | --- | --- |
 | `docker-compose.yml` | The service on the external `dms` network (`DMS_NETWORK` overrides it), published on `127.0.0.1:3200` (`ONEROSTER_DMS_PORT`). The image is `edfi-oneroster:dms-local`, built from this checkout (`ONEROSTER_IMAGE` overrides it). |
 | `.env.dms.5.2.0.example` | Service settings for DS 5.2, single tenant, with placeholders for the three secrets. |
+| `.env.dms.5.2.0.mssql.example` | The same for a DMS stack on SQL Server: `DB_TYPE=mssql`, no pg-boss. `setup-dms-clients.ps1 -DatabaseEngine mssql` uses it. The service settings don't depend on the data standard, so it serves DS 6.1 as well. |
 | `.env.dms` | Written by `setup-dms-clients.ps1` from the example; kept on later runs unless `-Force`. |
 | `.env.dms-clients` | Written by `setup-dms-clients.ps1`: client credentials and the DMS, CMS and OneRoster URLs. |
 
@@ -111,6 +114,48 @@ pwsh ./bootstrap-local-dms.ps1 -d -v -EnableSwaggerUI
 
 To restart DMS with its data kept, use `start-local-dms.ps1 -EnableSwaggerUI`, not
 `bootstrap-local-dms.ps1`; see the troubleshooting table.
+
+## SQL Server
+
+The DMS stack's `-DatabaseEngine mssql` puts the data store, CMS and the identity stores on SQL
+Server (container `dms-mssql`, host port 1435). The two engines' stacks use the same container
+names, so run one at a time: stop the other with `bootstrap-local-dms.ps1 -d` (keeps its volume)
+first. On SQL Server the `oneroster12` projections are tables filled by `sp_refresh_*` procedures,
+refreshed by a SQL Server Agent job (`OneRoster 1.2 Refresh (<database>)`, daily at 02:00 as on the
+ODS), so there is no pg-boss database.
+
+```powershell
+# 1. DMS on SQL Server (about 14 minutes on Apple silicon, where the SQL Server image runs emulated)
+cd <Data-Management-Service>/eng/docker-compose
+pwsh ./bootstrap-local-dms.ps1 -DatabaseEngine mssql -LoadSeedData -SeedTemplate Populated -EnableSwaggerUI
+
+# 2. SQL Server Agent: the DMS compose file doesn't enable it
+docker exec dms-mssql /opt/mssql/bin/mssql-conf set sqlagent.enabled true
+docker restart dms-mssql
+
+# 3. Clients and env files, kept apart from the PostgreSQL stack's
+cd <edfi-oneroster>/stack
+pwsh ./setup-dms-clients.ps1 -DmsComposeDir <Data-Management-Service>/eng/docker-compose `
+  -DatabaseEngine mssql -ClientsFile dms/.env.dms-clients.mssql -EnvFile dms/.env.dms.mssql
+
+# 4. Descriptors, projections, service
+pwsh ./start-dms-services.ps1 -Rebuild -EnvFile dms/.env.dms.mssql -ClientsFile dms/.env.dms-clients.mssql
+```
+
+`deploy-dms.js` reads `DB_TYPE=mssql` from the service environment and creates the tables,
+procedures and the Agent job in one transaction, then fills the tables (`sp_refresh_all`). It warns
+when SQL Server Agent isn't running. To refresh by hand: `exec oneroster12.sp_refresh_all
+@ForceRefresh = 1`. Ed-Fi API v8 writes SQL Server connection strings as `Server=host,port`, which
+the service parses.
+
+## Data Standard 6.1
+
+`bootstrap-local-dms.ps1 -DataStandardVersion 6.1` provisions DS 6.1 (core only; TPDM is part of
+core in 6.1). `deploy-dms.js` picks `standard/6.1.0/artifacts/dms-pgsql` or `dms-mssql` from the
+data store's `dms."SchemaComponent"`. A different data standard means a different effective schema,
+so the data store is reprovisioned: wipe the stack (`-d -v`) before switching, then rerun the steps
+above. The DS 6.1 projections follow the ODS 6.1 ones
+([data-standard-6.1-support.md](../../docs/design/data-standard-6.1-support.md)).
 
 ## Calling the service
 

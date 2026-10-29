@@ -28,6 +28,11 @@
       Service read-only secret, the connection-string encryption key and the PostgreSQL password
       filled in. An existing file is kept unless -Force is given.
 
+    For a DMS stack on SQL Server (bootstrap-local-dms.ps1 -DatabaseEngine mssql), pass
+    -DatabaseEngine mssql: the service environment comes from dms/.env.dms.5.2.0.mssql.example
+    (DB_TYPE=mssql, no pg-boss) and needs no database password. -ClientsFile and -EnvFile keep the
+    files of each engine's stack apart; give start-dms-services.ps1 the same two paths.
+
     Idempotent: existing claim sets, vendor and applications are reused, and credentials already in
     dms/.env.dms-clients are kept. If an application exists but its credentials are not in the
     file, rerun with -ResetMissingCredentials to rotate them.
@@ -90,8 +95,22 @@ param(
     [string]
     $CmsReadOnlyClientSecret = $env:CMS_READONLY_CLIENT_SECRET,
 
+    # The DMS stack's database engine, as bootstrap-local-dms.ps1 -DatabaseEngine
+    [ValidateSet("postgresql", "mssql")]
     [string]
-    $ServiceEnvExample = "dms/.env.dms.5.2.0.example",
+    $DatabaseEngine = "postgresql",
+
+    # Default: dms/.env.dms.5.2.0.example, or dms/.env.dms.5.2.0.mssql.example for mssql
+    [string]
+    $ServiceEnvExample,
+
+    # Client credentials to write, relative to stack/
+    [string]
+    $ClientsFile = "dms/.env.dms-clients",
+
+    # Service environment to write, relative to stack/
+    [string]
+    $EnvFile = "dms/.env.dms",
 
     [string]
     $DmsContainer = "ed-fi-api",
@@ -219,7 +238,11 @@ $dmsEnv = ReadValuesFromEnvFile -EnvironmentFile $dmsEnvFile
 $adminClientId = Get-RequiredValue $dmsEnv "CONFIGURATION_SERVICE_IDENTITY_CLIENT_ID" $dmsEnvFile
 $adminClientSecret = Get-RequiredValue $dmsEnv "CONFIGURATION_SERVICE_IDENTITY_CLIENT_SECRET" $dmsEnvFile
 $encryptionKey = Get-RequiredValue $dmsEnv "CONFIGURATION_SERVICE_DATABASE_ENCRYPTION_KEY" $dmsEnvFile
-$postgresPassword = Get-RequiredValue $dmsEnv "POSTGRES_PASSWORD" $dmsEnvFile
+# pg-boss runs only on PostgreSQL; on SQL Server the SQL Server Agent refreshes the projections
+$postgresPassword = if ($DatabaseEngine -eq "postgresql") { Get-RequiredValue $dmsEnv "POSTGRES_PASSWORD" $dmsEnvFile } else { $null }
+if ([string]::IsNullOrWhiteSpace($ServiceEnvExample)) {
+    $ServiceEnvExample = if ($DatabaseEngine -eq "mssql") { "dms/.env.dms.5.2.0.mssql.example" } else { "dms/.env.dms.5.2.0.example" }
+}
 
 if ([string]::IsNullOrWhiteSpace($CmsReadOnlyClientSecret)) {
     # The DMS stack registers the read-only client with setup-openiddict.ps1's default secret
@@ -234,8 +257,8 @@ if ([string]::IsNullOrWhiteSpace($CmsReadOnlyClientSecret)) {
     $CmsReadOnlyClientSecret = $match.Matches[0].Groups[1].Value
 }
 
-$clientsFile = Resolve-StackPath "dms/.env.dms-clients"
-$serviceEnvFile = Resolve-StackPath "dms/.env.dms"
+$clientsFile = Resolve-StackPath $ClientsFile
+$serviceEnvFile = Resolve-StackPath $EnvFile
 $serviceEnvExample = Resolve-StackPath $ServiceEnvExample
 
 # --- Configuration Service objects -----------------------------------------------------------
@@ -376,10 +399,12 @@ else {
     $text = $text.Replace("CONFIG_SERVICE_CLIENT_ID=CMSAuthMetadataReadOnlyAccess", (Format-EnvValue "CONFIG_SERVICE_CLIENT_ID" $CmsReadOnlyClientId))
     $text = $text.Replace("CONFIG_SERVICE_CLIENT_SECRET=<CMS read-only client secret>", (Format-EnvValue "CONFIG_SERVICE_CLIENT_SECRET" $CmsReadOnlyClientSecret))
     $text = $text.Replace("CONFIG_SERVICE_ENCRYPTION_KEY=<CONFIGURATION_SERVICE_DATABASE_ENCRYPTION_KEY from the DMS stack>", (Format-EnvValue "CONFIG_SERVICE_ENCRYPTION_KEY" $encryptionKey))
-    if ($postgresPassword.Contains('"') -or $postgresPassword.Contains(';') -or $postgresPassword.Contains("'")) {
-        throw "POSTGRES_PASSWORD contains a character that can't go into PG_BOSS_CONNECTION_CONFIG unescaped."
+    if ($postgresPassword) {
+        if ($postgresPassword.Contains('"') -or $postgresPassword.Contains(';') -or $postgresPassword.Contains("'")) {
+            throw "POSTGRES_PASSWORD contains a character that can't go into PG_BOSS_CONNECTION_CONFIG unescaped."
+        }
+        $text = $text.Replace("password=<password>", "password=$postgresPassword")
     }
-    $text = $text.Replace("password=<password>", "password=$postgresPassword")
 
     $unfilled = @($text -split "`n" | Where-Object { -not $_.TrimStart().StartsWith("#") -and $_.Contains("<") })
     if ($unfilled.Count -gt 0) {

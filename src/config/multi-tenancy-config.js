@@ -106,6 +106,10 @@ function parseConnectionString(connectionString, dbType) {
     // with the ODS and Admin API, whose .NET parsers reject anything else — so a
     // CA path is supplied out of band, via NODE_EXTRA_CA_CERTS for the service
     // or DB_SSL_CA for the standard/ tooling.
+    //
+    // The server may carry the port the SqlClient way, "[tcp:]host,port" (the form Ed-Fi API v8
+    // writes, e.g. Server=dms-mssql,1433). An explicit port= keyword wins over it.
+    let serverPort;
     const parts = connectionString.split(';').filter(p => p.trim());
     parts.forEach(part => {
       const [key, ...rest] = part.split('=');
@@ -113,7 +117,10 @@ function parseConnectionString(connectionString, dbType) {
       const lowerKey = key.trim().toLowerCase();
 
       if (lowerKey === 'server' || lowerKey === 'data source') {
-        config.server = value.replace(/^\(local\)$/i, 'localhost');
+        const hostAndPort = /^(?:tcp:)?([^,]+?)\s*,\s*(\d+)$/i.exec(value);
+        const host = hostAndPort ? hostAndPort[1] : value.replace(/^tcp:/i, '');
+        serverPort = hostAndPort ? parseInt(hostAndPort[2], 10) : undefined;
+        config.server = host.replace(/^\(local\)$/i, 'localhost');
       } else if (lowerKey === 'database' || lowerKey === 'initial catalog') {
         config.database = value;
       } else if (lowerKey === 'user id' || lowerKey === 'uid') {
@@ -129,7 +136,7 @@ function parseConnectionString(connectionString, dbType) {
       }
     });
 
-    if (!config.port) config.port = 1433;
+    if (!config.port) config.port = serverPort ?? 1433;
     // encrypt and trustServerCertificate stay unset when absent, so
     // buildMssqlTlsOptions() can tell "unspecified" from an explicit opt-out.
 

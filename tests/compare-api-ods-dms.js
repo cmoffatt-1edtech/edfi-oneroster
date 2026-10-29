@@ -32,6 +32,15 @@
  *   --known <file>    Differences already explained (JSON, see dms-parity-known-differences.json):
  *                     they are listed but don't fail the run. Exit code 1 means an unexplained
  *                     difference.
+ *
+ * DMS against DMS (e.g. PostgreSQL against SQL Server). The two DMS stacks share container names,
+ * so they can't run together: record one, then compare the other with the recording.
+ *   node tests/compare-api.js dms-record --dms-env <file> --out <recording.json> [--name PostgreSQL]
+ *     Writes every response the comparison uses (no credentials) to the file, mode 600.
+ *   node tests/compare-api.js dms-vs-recording --dms-env <file> --recording <recording.json> [--name "SQL Server"] [--known <file>]
+ *     Fetches the same collections, single items and error cases from the running service and
+ *     compares them with the recording, as ods-vs-dms does (no excluded education organizations).
+ *   The DMS_* settings work as above; the recording's roster-core case needs DMS_CORE_KEY.
  */
 
 import crypto from 'crypto';
@@ -47,11 +56,25 @@ const COLLECTIONS = {
   orgs: 'orgs', schools: 'orgs', users: 'users', students: 'users', teachers: 'users'
 };
 
+const CLIENTS = ['lea', 'school'];
+const SIDE_NAMES = ['ODS', 'DMS'];
+const ERROR_CASES = [
+  ['no token', 'orgs', null],
+  ['malformed token', 'orgs', 'not.a.token'],
+  ['bad limit', 'orgs?limit=abc', 'lea'],
+  ['unknown id', `orgs/${'0'.repeat(32)}`, 'lea'],
+  ['unknown path', 'nothing', 'lea'],
+  ['bad filter field', `orgs?filter=${encodeURIComponent("password='x'")}`, 'lea']
+];
+// roster-core only: demographics must be refused, the same way on both sides
+const CORE_CASE = 'core scope on demographics';
+const RECORDING_FORMAT = 'oneroster-api-recording/1';
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const md5 = text => crypto.createHash('md5').update(text).digest('hex');
 
 function parseArgs(argv) {
-  const args = { excluded: ['5', '6', '7'], samples: 3, pageSize: 500, odsEnv: null, dmsEnv: null, known: null };
+  const args = { excluded: ['5', '6', '7'], samples: 3, pageSize: 500, odsEnv: null, dmsEnv: null, known: null, out: null, recording: null, name: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--exclude-edorgs') args.excluded = argv[++i].split(',').map(s => s.trim()).filter(Boolean);
     else if (argv[i] === '--samples') args.samples = Number(argv[++i]);
@@ -59,6 +82,9 @@ function parseArgs(argv) {
     else if (argv[i] === '--ods-env') args.odsEnv = argv[++i];
     else if (argv[i] === '--dms-env') args.dmsEnv = argv[++i];
     else if (argv[i] === '--known') args.known = argv[++i];
+    else if (argv[i] === '--out') args.out = argv[++i];
+    else if (argv[i] === '--recording') args.recording = argv[++i];
+    else if (argv[i] === '--name') args.name = argv[++i];
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
   return args;
@@ -170,29 +196,30 @@ function repeatedIds(items) {
 /**
  * Compare one collection item by item. A sourcedId that appears more than once on either side is a
  * difference of its own ('duplicate on ODS' / 'duplicate on DMS'); matching by sourcedId alone
- * would hide it.
+ * would hide it. `names` labels the two sides in the difference kinds.
  * @returns {{ row: Object, diffs: Object[] }}
  */
-export function compareCollection(label, odsItems, dmsItems) {
+export function compareCollection(label, odsItems, dmsItems, names = SIDE_NAMES) {
+  const [nameA, nameB] = names;
   const diffs = [];
   const odsById = new Map(odsItems.map(item => [item.sourcedId, withoutTimestamp(item)]));
   const dmsById = new Map(dmsItems.map(item => [item.sourcedId, withoutTimestamp(item)]));
   const row = { label, ods: odsItems.length, dms: dmsItems.length, identical: 0, orderOnly: 0, differ: 0, onlyOds: 0, onlyDms: 0, duplicates: 0 };
-  for (const [side, items] of [['ODS', odsItems], ['DMS', dmsItems]]) {
+  for (const [side, items] of [[nameA, odsItems], [nameB, dmsItems]]) {
     for (const [id, count] of repeatedIds(items)) {
       row.duplicates++;
       diffs.push({ label, sourcedId: id, kind: `duplicate on ${side}`, count });
     }
   }
   for (const [id, item] of odsById) {
-    if (!dmsById.has(id)) { row.onlyOds++; diffs.push({ label, sourcedId: id, kind: 'only ODS' }); continue; }
+    if (!dmsById.has(id)) { row.onlyOds++; diffs.push({ label, sourcedId: id, kind: `only ${nameA}` }); continue; }
     const other = dmsById.get(id);
     if (canonical(item, false) === canonical(other, false)) row.identical++;
     else if (canonical(item, true) === canonical(other, true)) row.orderOnly++;
-    else { row.differ++; diffs.push({ label, sourcedId: id, kind: 'differs', ods: item, dms: other }); }
+    else { row.differ++; diffs.push({ label, sourcedId: id, kind: 'differs', [nameA.toLowerCase()]: item, [nameB.toLowerCase()]: other }); }
   }
   for (const id of dmsById.keys()) {
-    if (!odsById.has(id)) { row.onlyDms++; diffs.push({ label, sourcedId: id, kind: 'only DMS' }); }
+    if (!odsById.has(id)) { row.onlyDms++; diffs.push({ label, sourcedId: id, kind: `only ${nameB}` }); }
   }
   // Same items, so the order of the collection itself should match too (stable paging, #133)
   row.sameOrder = canonical([...odsById.keys()].filter(id => dmsById.has(id)), false) ===
@@ -207,103 +234,106 @@ function isExcluded(item, excludedOrgs, excludedUsers) {
   return refs.length > 0 && refs.every(id => excludedOrgs.has(id));
 }
 
-export async function runOdsVsDms(argv) {
-  const args = parseArgs(argv);
-  Object.assign(process.env, settingsFromEnvFiles({
-    odsEnvText: args.odsEnv && fs.readFileSync(args.odsEnv, 'utf8'),
-    dmsEnvText: args.dmsEnv && fs.readFileSync(args.dmsEnv, 'utf8')
-  }));
-  const ods = { base: `${requireEnv('ODS_ONEROSTER_URL').replace(/\/+$/, '')}/${ROSTER_PATH}`, tokenUrl: requireEnv('ODS_TOKEN_URL') };
-  const dms = { base: `${requireEnv('DMS_ONEROSTER_URL').replace(/\/+$/, '')}/${ROSTER_PATH}`, tokenUrl: requireEnv('DMS_TOKEN_URL') };
-  const excludedOrgs = new Set(args.excluded.map(md5));
-  const excludedUsers = new Set();
-
-  const clients = {
-    lea: {
-      ods: await token(ods.tokenUrl, requireEnv('ODS_LEA_KEY'), requireEnv('ODS_LEA_SECRET'), ODS_SCOPES),
-      dms: await token(dms.tokenUrl, requireEnv('DMS_LEA_KEY'), requireEnv('DMS_LEA_SECRET'))
-    },
-    school: {
-      ods: await token(ods.tokenUrl, requireEnv('ODS_SCHOOL_KEY'), requireEnv('ODS_SCHOOL_SECRET'), ODS_SCOPES),
-      dms: await token(dms.tokenUrl, requireEnv('DMS_SCHOOL_KEY'), requireEnv('DMS_SCHOOL_SECRET'))
+/**
+ * A OneRoster service over HTTP. `clients` maps a client name to { key, secret, scope }; each gets
+ * one token, requested here. get(path, client) takes a client name, a raw bearer value or null.
+ */
+async function liveService(url, tokenUrl, clients) {
+  const base = `${url.replace(/\/+$/, '')}/${ROSTER_PATH}`;
+  const tokens = {};
+  for (const [name, { key, secret, scope }] of Object.entries(clients)) {
+    tokens[name] = await token(tokenUrl, key, secret, scope);
+  }
+  const service = {
+    requests: 0,
+    get: async (path, client) => {
+      service.requests++;
+      return get(`${base}/${path}`, client !== null && client in tokens ? tokens[client] : client);
     }
   };
+  return service;
+}
+
+/**
+ * Every response the comparison needs from one service: each collection, paged in full, for the
+ * LEA and School clients; single items (the first `samples` of each collection, or `sampleIds`
+ * when given, so both sides fetch the same ids); the error cases; and, when `core` is set,
+ * /demographics for the roster-core client.
+ */
+export async function collectResponses(service, { pageSize = 500, samples = 3, sampleIds = null, core = false } = {}) {
+  const responses = { collections: {}, singles: {}, errors: {} };
+  for (const client of CLIENTS) {
+    for (const [collection, wrapper] of Object.entries(COLLECTIONS)) {
+      const label = `${client} ${collection}`;
+      const items = [];
+      for (let offset = 0; ; offset += pageSize) {
+        const res = await service.get(`${collection}?limit=${pageSize}&offset=${offset}`, client);
+        if (res.status !== 200) throw new Error(`${label}: HTTP ${res.status}`);
+        const page = res.body[wrapper] || [];
+        items.push(...page);
+        if (page.length < pageSize) break;
+      }
+      responses.collections[label] = items;
+      responses.singles[label] = {};
+      const ids = sampleIds ? Object.keys(sampleIds[label] || {}) : items.slice(0, samples).map(item => item.sourcedId);
+      for (const id of ids) responses.singles[label][id] = await service.get(`${collection}/${id}`, client);
+    }
+  }
+  for (const [label, path, client] of ERROR_CASES) responses.errors[label] = await service.get(path, client);
+  if (core) responses.errors[CORE_CASE] = await service.get('demographics', 'core');
+  return responses;
+}
+
+/**
+ * Compare the responses of two services. Items of side A tied to `excludedEdOrgs` (and those
+ * users' demographics) are dropped first.
+ * @returns {{ summary: Object[], diffs: Object[] }}
+ */
+export function compareResponses(a, b, { excludedEdOrgs = [], names = SIDE_NAMES } = {}) {
+  const [nameA, nameB] = names;
+  const excludedOrgs = new Set(excludedEdOrgs.map(md5));
+  const excludedUsers = new Set();
+  for (const client of CLIENTS) {
+    (a.collections[`${client} users`] || []).filter(item => isExcluded(item, excludedOrgs, excludedUsers))
+      .forEach(item => excludedUsers.add(item.sourcedId));
+  }
 
   const summary = [];
   const diffs = [];
-  let requests = 0;
-
-  const compareBodies = (label, odsItems, dmsItems) => {
-    const result = compareCollection(label, odsItems, dmsItems);
+  for (const label of Object.keys(b.collections)) {
+    if (!a.collections[label]) throw new Error(`${label}: not in the ${nameA} responses`);
+    const kept = a.collections[label].filter(item => !isExcluded(item, excludedOrgs, excludedUsers));
+    const result = compareCollection(label, kept, b.collections[label], names);
     summary.push(result.row);
     diffs.push(...result.diffs);
-  };
 
-  // users first, so demographics can be excluded by the excluded students' sourcedIds
-  const order = ['users', ...Object.keys(COLLECTIONS).filter(name => name !== 'users')];
-  for (const [client, bearer] of Object.entries(clients)) {
-    for (const collection of order) {
-      const wrapper = COLLECTIONS[collection];
-      const pages = { ods: [], dms: [] };
-      for (const side of ['ods', 'dms']) {
-        const base = side === 'ods' ? ods.base : dms.base;
-        for (let offset = 0; ; offset += args.pageSize) {
-          const res = await get(`${base}/${collection}?limit=${args.pageSize}&offset=${offset}`, bearer[side]);
-          requests++;
-          if (res.status !== 200) throw new Error(`${side} ${client} ${collection}: HTTP ${res.status}`);
-          const items = res.body[wrapper] || [];
-          pages[side].push(...items);
-          if (items.length < args.pageSize) break;
-        }
-      }
-      const kept = pages.ods.filter(item => !isExcluded(item, excludedOrgs, excludedUsers));
-      if (collection === 'users') {
-        pages.ods.filter(item => isExcluded(item, excludedOrgs, excludedUsers)).forEach(item => excludedUsers.add(item.sourcedId));
-      }
-      compareBodies(`${client} ${collection}`, kept, pages.dms);
-
-      // Single items by id
-      for (const item of pages.dms.slice(0, args.samples)) {
-        const [a, b] = [await get(`${ods.base}/${collection}/${item.sourcedId}`, bearer.ods), await get(`${dms.base}/${collection}/${item.sourcedId}`, bearer.dms)];
-        requests += 2;
-        const strip = res => ({ status: res.status, body: Object.fromEntries(Object.entries(res.body || {}).map(([k, v]) => [k, withoutTimestamp(v)])) });
-        if (canonical(strip(a), true) !== canonical(strip(b), true)) {
-          diffs.push({ label: `${client} ${collection}/:id`, sourcedId: item.sourcedId, kind: 'single item differs', ods: a, dms: b });
-        }
+    const strip = res => res && { status: res.status, body: Object.fromEntries(Object.entries(res.body || {}).map(([k, v]) => [k, withoutTimestamp(v)])) };
+    const ids = new Set([...Object.keys(a.singles[label] || {}), ...Object.keys(b.singles[label] || {})]);
+    for (const id of ids) {
+      const [x, y] = [a.singles[label]?.[id], b.singles[label]?.[id]];
+      if (canonical(strip(x) ?? null, true) !== canonical(strip(y) ?? null, true)) {
+        diffs.push({ label: `${label}/:id`, sourcedId: id, kind: 'single item differs', [nameA.toLowerCase()]: x, [nameB.toLowerCase()]: y });
       }
     }
   }
 
-  // Error responses
-  const errorCases = [
-    ['no token', 'orgs', null],
-    ['malformed token', 'orgs', 'not.a.token'],
-    ['bad limit', 'orgs?limit=abc', 'lea'],
-    ['unknown id', `orgs/${'0'.repeat(32)}`, 'lea'],
-    ['unknown path', 'nothing', 'lea'],
-    ['bad filter field', `orgs?filter=${encodeURIComponent("password='x'")}`, 'lea']
-  ];
-  for (const [label, path, client] of errorCases) {
-    const bearer = client === null ? [null, null] : client === 'lea' ? [clients.lea.ods, clients.lea.dms] : [client, client];
-    const [a, b] = [await get(`${ods.base}/${path}`, bearer[0]), await get(`${dms.base}/${path}`, bearer[1])];
-    requests += 2;
-    if (canonical(a, false) !== canonical(b, false)) diffs.push({ label: `error: ${label}`, kind: 'error response differs', ods: a, dms: b });
+  for (const label of new Set([...Object.keys(a.errors), ...Object.keys(b.errors)])) {
+    const [x, y] = [a.errors[label], b.errors[label]];
+    const refused = label !== CORE_CASE || x?.status === 403;
+    if (!refused || canonical(x ?? null, false) !== canonical(y ?? null, false)) {
+      diffs.push({ label: `error: ${label}`, kind: 'error response differs', [nameA.toLowerCase()]: x, [nameB.toLowerCase()]: y });
+    }
   }
+  return { summary, diffs };
+}
 
-  // roster-core only: demographics must be refused the same way
-  if (process.env.DMS_CORE_KEY) {
-    const odsCore = await token(ods.tokenUrl, requireEnv('ODS_LEA_KEY'), requireEnv('ODS_LEA_SECRET'), `${SCOPE}roster-core.readonly`);
-    const dmsCore = await token(dms.tokenUrl, process.env.DMS_CORE_KEY, requireEnv('DMS_CORE_SECRET'));
-    const [a, b] = [await get(`${ods.base}/demographics`, odsCore), await get(`${dms.base}/demographics`, dmsCore)];
-    requests += 2;
-    if (a.status !== 403 || canonical(a, false) !== canonical(b, false)) diffs.push({ label: 'error: core scope on demographics', kind: 'error response differs', ods: a, dms: b });
-  }
-
-  console.log(`${'collection'.padEnd(22)} ${'ODS'.padStart(6)} ${'DMS'.padStart(6)} ${'same'.padStart(6)} order-only differ onlyODS onlyDMS dupes sameOrder`);
+/** Print the summary table and the differences; returns the exit code (0 = nothing unexplained). */
+function report({ summary, diffs }, { names = SIDE_NAMES, known = [], requests }) {
+  const [nameA, nameB] = names.map(name => name.slice(0, 6));
+  console.log(`${'collection'.padEnd(22)} ${nameA.padStart(6)} ${nameB.padStart(6)} ${'same'.padStart(6)} order-only differ ${`only${nameA}`.padStart(10)} ${`only${nameB}`.padStart(10)} dupes sameOrder`);
   for (const r of summary) {
-    console.log(`${r.label.padEnd(22)} ${String(r.ods).padStart(6)} ${String(r.dms).padStart(6)} ${String(r.identical).padStart(6)} ${String(r.orderOnly).padStart(10)} ${String(r.differ).padStart(6)} ${String(r.onlyOds).padStart(7)} ${String(r.onlyDms).padStart(7)} ${String(r.duplicates).padStart(5)} ${r.sameOrder}`);
+    console.log(`${r.label.padEnd(22)} ${String(r.ods).padStart(6)} ${String(r.dms).padStart(6)} ${String(r.identical).padStart(6)} ${String(r.orderOnly).padStart(10)} ${String(r.differ).padStart(6)} ${String(r.onlyOds).padStart(10)} ${String(r.onlyDms).padStart(10)} ${String(r.duplicates).padStart(5)} ${r.sameOrder}`);
   }
-  const known = args.known ? JSON.parse(fs.readFileSync(args.known, 'utf8')).differences : [];
   const { explained, unexplained } = partitionDifferences(diffs, known);
   const reasons = new Map();
   for (const d of explained) reasons.set(d.reason, (reasons.get(d.reason) || 0) + 1);
@@ -313,4 +343,77 @@ export async function runOdsVsDms(argv) {
   console.log(`\n${requests} requests; ${diffs.length} difference(s), ${explained.length} known, ` +
     `${unexplained.length} unexplained; ${orderMismatches} collection(s) in a different order`);
   return unexplained.length === 0 && orderMismatches === 0 ? 0 : 1;
+}
+
+function loadEnvFiles(args) {
+  Object.assign(process.env, settingsFromEnvFiles({
+    odsEnvText: args.odsEnv && fs.readFileSync(args.odsEnv, 'utf8'),
+    dmsEnvText: args.dmsEnv && fs.readFileSync(args.dmsEnv, 'utf8')
+  }));
+}
+
+function loadKnown(args) {
+  return args.known ? JSON.parse(fs.readFileSync(args.known, 'utf8')).differences : [];
+}
+
+/** The DMS-backed service from the DMS_* settings; the core client only when DMS_CORE_KEY is set. */
+function dmsService() {
+  const clients = {
+    lea: { key: requireEnv('DMS_LEA_KEY'), secret: requireEnv('DMS_LEA_SECRET') },
+    school: { key: requireEnv('DMS_SCHOOL_KEY'), secret: requireEnv('DMS_SCHOOL_SECRET') }
+  };
+  if (process.env.DMS_CORE_KEY) clients.core = { key: process.env.DMS_CORE_KEY, secret: requireEnv('DMS_CORE_SECRET') };
+  return liveService(requireEnv('DMS_ONEROSTER_URL'), requireEnv('DMS_TOKEN_URL'), clients);
+}
+
+export async function runOdsVsDms(argv) {
+  const args = parseArgs(argv);
+  loadEnvFiles(args);
+  const core = Boolean(process.env.DMS_CORE_KEY);
+  const ods = await liveService(requireEnv('ODS_ONEROSTER_URL'), requireEnv('ODS_TOKEN_URL'), {
+    lea: { key: requireEnv('ODS_LEA_KEY'), secret: requireEnv('ODS_LEA_SECRET'), scope: ODS_SCOPES },
+    school: { key: requireEnv('ODS_SCHOOL_KEY'), secret: requireEnv('ODS_SCHOOL_SECRET'), scope: ODS_SCOPES },
+    ...(core && { core: { key: requireEnv('ODS_LEA_KEY'), secret: requireEnv('ODS_LEA_SECRET'), scope: `${SCOPE}roster-core.readonly` } })
+  });
+  const dms = await dmsService();
+
+  // DMS first: the single items are sampled from DMS, which has no excluded education organizations
+  const dmsResponses = await collectResponses(dms, { pageSize: args.pageSize, samples: args.samples, core });
+  const odsResponses = await collectResponses(ods, { pageSize: args.pageSize, sampleIds: dmsResponses.singles, core });
+  return report(compareResponses(odsResponses, dmsResponses, { excludedEdOrgs: args.excluded }),
+    { known: loadKnown(args), requests: ods.requests + dms.requests });
+}
+
+/**
+ * Record a DMS-backed service's responses to a file, to compare later with another DMS-backed
+ * service that can't run at the same time (the PostgreSQL and SQL Server DMS stacks share
+ * container names). The file holds the API output, no credentials.
+ */
+export async function runDmsRecord(argv) {
+  const args = parseArgs(argv);
+  if (!args.out) throw new Error('Set --out <file>');
+  loadEnvFiles(args);
+  const dms = await dmsService();
+  const responses = await collectResponses(dms, { pageSize: args.pageSize, samples: args.samples, core: Boolean(process.env.DMS_CORE_KEY) });
+  const recording = { format: RECORDING_FORMAT, name: args.name || 'recorded', recordedAt: new Date().toISOString(), service: process.env.DMS_ONEROSTER_URL, responses };
+  fs.writeFileSync(args.out, `${JSON.stringify(recording)}\n`, { mode: 0o600 });
+  const items = Object.values(responses.collections).reduce((n, list) => n + list.length, 0);
+  console.log(`${dms.requests} requests; ${Object.keys(responses.collections).length} collections, ${items} items; wrote ${args.out}`);
+  return 0;
+}
+
+/** Compare a live DMS-backed service with a recording made by dms-record. */
+export async function runDmsVsRecording(argv) {
+  const args = parseArgs(argv);
+  if (!args.recording) throw new Error('Set --recording <file>');
+  loadEnvFiles(args);
+  const recording = JSON.parse(fs.readFileSync(args.recording, 'utf8'));
+  if (recording.format !== RECORDING_FORMAT) throw new Error(`${args.recording} is not a ${RECORDING_FORMAT} file`);
+  const core = CORE_CASE in recording.responses.errors;
+  if (core && !process.env.DMS_CORE_KEY) throw new Error('The recording has the roster-core case: set DMS_CORE_KEY / DMS_CORE_SECRET');
+  const dms = await dmsService();
+  const live = await collectResponses(dms, { pageSize: args.pageSize, sampleIds: recording.responses.singles, core });
+  const names = [recording.name, args.name || 'live'];
+  console.log(`Recorded ${recording.recordedAt} from ${recording.service} (${recording.name}); live ${process.env.DMS_ONEROSTER_URL} (${names[1]})`);
+  return report(compareResponses(recording.responses, live, { names }), { names, known: loadKnown(args), requests: dms.requests });
 }

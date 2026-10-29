@@ -3,8 +3,13 @@
 // 1EdTech Consortium, Inc. licenses this file to you under the Apache License, Version 2.0.
 // See the LICENSE and NOTICES files in the project root for more information.
 
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { settingsFromEnvFiles, partitionDifferences, compareCollection, runOdsVsDms } from '../compare-api-ods-dms.js';
+import {
+  settingsFromEnvFiles, partitionDifferences, compareCollection, compareResponses, runOdsVsDms, runDmsRecord, runDmsVsRecording
+} from '../compare-api-ods-dms.js';
 
 const odsEnvText = [
   'BASE_URL=https://localhost/',
@@ -101,6 +106,55 @@ describe('compareCollection', () => {
     const ods = compareCollection('lea users', [user('a'), user('a')], [user('a')]);
     expect(ods.diffs.map(d => d.kind)).toEqual(['duplicate on ODS']);
   });
+
+  test('names the sides as given', () => {
+    const { diffs } = compareCollection('lea users', [user('a')], [user('b')], ['PostgreSQL', 'SQL Server']);
+    expect(diffs.map(d => d.kind)).toEqual(['only PostgreSQL', 'only SQL Server']);
+  });
+});
+
+describe('compareResponses', () => {
+  const org = (id, extra = {}) => ({ sourcedId: id, name: id, ...extra });
+  const responses = (orgs, singles = {}, errors = {}) => ({
+    collections: { 'lea orgs': orgs }, singles: { 'lea orgs': singles }, errors
+  });
+
+  test('drops side A items of excluded education organizations, users and their demographics', () => {
+    // md5('5'): the excluded org itself, a user only there, and that user's demographics
+    const excludedOrg = 'e4da3b7fbbce2345d7772b0674a318d5';
+    const a = {
+      collections: {
+        'lea users': [{ sourcedId: 'u1', orgs: [{ sourcedId: excludedOrg }] }, { sourcedId: 'u2', orgs: [{ sourcedId: 'o' }] }],
+        'lea demographics': [{ sourcedId: 'u1' }, { sourcedId: 'u2' }],
+        'lea orgs': [org(excludedOrg), org('o')]
+      },
+      singles: {},
+      errors: {}
+    };
+    const b = {
+      collections: { 'lea users': [{ sourcedId: 'u2', orgs: [{ sourcedId: 'o' }] }], 'lea demographics': [{ sourcedId: 'u2' }], 'lea orgs': [org('o')] },
+      singles: {},
+      errors: {}
+    };
+    expect(compareResponses(a, b, { excludedEdOrgs: ['5'] }).diffs).toEqual([]);
+    expect(compareResponses(a, b).diffs.map(d => d.kind)).toEqual(['only ODS', 'only ODS', 'only ODS']);
+  });
+
+  test('compares single items without dateLastModified, and a missing one as a difference', () => {
+    const one = { status: 200, body: { org: org('o', { dateLastModified: '2026-01-01' }) } };
+    const later = { status: 200, body: { org: org('o', { dateLastModified: '2026-02-02' }) } };
+    expect(compareResponses(responses([org('o')], { o: one }), responses([org('o')], { o: later })).diffs).toEqual([]);
+    const { diffs } = compareResponses(responses([org('o')], { o: one }), responses([org('o')], {}));
+    expect(diffs.map(d => [d.label, d.kind])).toEqual([['lea orgs/:id', 'single item differs']]);
+  });
+
+  test('requires the roster-core case to be refused on side A as well as identical', () => {
+    const allowed = { status: 200, body: { demographics: [] } };
+    const refused = { status: 403, body: { imsx_codeMajor: 'failure' } };
+    const core = 'core scope on demographics';
+    expect(compareResponses(responses([], {}, { [core]: refused }), responses([], {}, { [core]: refused })).diffs).toEqual([]);
+    expect(compareResponses(responses([], {}, { [core]: allowed }), responses([], {}, { [core]: allowed })).diffs).toHaveLength(1);
+  });
 });
 
 // The whole runner against fake services that agree except for one repeated DMS user
@@ -149,5 +203,25 @@ describe('runOdsVsDms', () => {
   test('fails when DMS returns a user twice', async () => {
     serve([user, user]);
     await expect(runOdsVsDms([])).resolves.toBe(1);
+  });
+
+  test('a recording replays against an identical service and catches a changed one', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oneroster-recording-'));
+    const file = path.join(dir, 'recording.json');
+    try {
+      serve([user]);
+      await expect(runDmsRecord(['--out', file, '--name', 'PostgreSQL'])).resolves.toBe(0);
+      const recording = JSON.parse(fs.readFileSync(file, 'utf8'));
+      expect(recording).toMatchObject({ format: 'oneroster-api-recording/1', name: 'PostgreSQL', service: 'http://dms' });
+      expect(recording.responses.collections['lea users']).toEqual([user]);
+      expect(JSON.stringify(recording)).not.toContain('access_token');
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+
+      await expect(runDmsVsRecording(['--recording', file, '--name', 'SQL Server'])).resolves.toBe(0);
+      serve([{ ...user, givenName: 'B' }]);
+      await expect(runDmsVsRecording(['--recording', file])).resolves.toBe(1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

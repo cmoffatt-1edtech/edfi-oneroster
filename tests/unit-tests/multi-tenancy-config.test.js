@@ -156,6 +156,22 @@ describe('multi-tenancy-config', () => {
         );
         expect(result.password).toBe('abc=def==ghi');
       });
+
+      test('reads the port from "Server=host,port" (the form Ed-Fi API v8 writes)', () => {
+        const result = parseConnectionString(
+          'Server=dms-mssql,1433;Database=edfi_datamanagementservice;User Id=sa;Password=p;TrustServerCertificate=true;',
+          'mssql'
+        );
+        expect(result).toMatchObject({ server: 'dms-mssql', port: 1433, database: 'edfi_datamanagementservice', trustServerCertificate: true });
+        expect(parseConnectionString('Data Source=tcp:sql.example.org, 14330;Database=db', 'mssql'))
+          .toMatchObject({ server: 'sql.example.org', port: 14330 });
+        expect(parseConnectionString('Server=tcp:sqlhost;Database=db', 'mssql')).toMatchObject({ server: 'sqlhost', port: 1433 });
+      });
+
+      test('an explicit port keyword wins over the port in Server', () => {
+        const result = parseConnectionString('Server=sqlhost,1433;Port=1434;Database=db', 'mssql');
+        expect(result).toMatchObject({ server: 'sqlhost', port: 1434 });
+      });
     });
 
     describe('PostgreSQL', () => {

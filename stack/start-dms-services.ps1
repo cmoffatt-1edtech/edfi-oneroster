@@ -19,7 +19,9 @@
        "OneRoster Seeder" application (standard/seed-descriptors.js; idempotent).
     3. Deploys the oneroster12 projections into each data store the Configuration Service lists,
        and creates the pg-boss database named in PG_BOSS_CONNECTION_CONFIG if it is missing
-       (standard/deploy-dms.js --from-cms --jobs-database; rerunning replaces the views).
+       (standard/deploy-dms.js --from-cms --jobs-database; rerunning replaces the views). With
+       DB_TYPE=mssql in the service environment (a DMS stack on SQL Server) the projections are
+       tables refreshed by a SQL Server Agent job, and there is no pg-boss database.
     4. Starts the service and waits until its health check passes.
 
     Reprovisioning a data store (a wipe, a data standard upgrade, an extension change) drops the
@@ -145,10 +147,17 @@ if (-not $SkipSeed) {
 }
 
 if (-not $SkipDeploy) {
-    $jobsDatabase = Get-JobsDatabaseName -ServiceEnv $serviceEnv
-    Write-Host "Deploying the OneRoster projections and the pg-boss database ($jobsDatabase)..." -ForegroundColor Cyan
-    Invoke-Compose @("run", "--rm", "--no-deps", "oneroster-dms",
-        "node", "standard/deploy-dms.js", "--from-cms", "--jobs-database", $jobsDatabase)
+    if ($serviceEnv["DB_TYPE"] -eq "mssql") {
+        Write-Host "Deploying the OneRoster projections (SQL Server)..." -ForegroundColor Cyan
+        Invoke-Compose @("run", "--rm", "--no-deps", "oneroster-dms",
+            "node", "standard/deploy-dms.js", "--from-cms")
+    }
+    else {
+        $jobsDatabase = Get-JobsDatabaseName -ServiceEnv $serviceEnv
+        Write-Host "Deploying the OneRoster projections and the pg-boss database ($jobsDatabase)..." -ForegroundColor Cyan
+        Invoke-Compose @("run", "--rm", "--no-deps", "oneroster-dms",
+            "node", "standard/deploy-dms.js", "--from-cms", "--jobs-database", $jobsDatabase)
+    }
 }
 
 Write-Host "Starting the OneRoster service..." -ForegroundColor Cyan
