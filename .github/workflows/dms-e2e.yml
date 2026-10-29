@@ -1,0 +1,145 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to 1EdTech Consortium, Inc. under one or more agreements.
+# 1EdTech Consortium, Inc. licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+# OneRoster on Ed-Fi API v8 (DMS), end to end: the published DMS images on each database engine and
+# data standard, the OneRoster service built from this checkout (stack/dms), and the Bruno DMS
+# suites. Mirrors the local procedure in stack/dms/README.md.
+#
+# Not run locally: written in the DMS port (docs/design/dms-port-run-notes.md, phase 6) and
+# unverified until it first runs on GitHub.
+name: DMS E2E
+
+on:
+  pull_request:
+    branches:
+      - main
+    # The service's code, build and dependencies, the seed data and deployment, the stack scripts and
+    # the suites
+    paths:
+      - 'src/**'
+      - 'server.js'
+      - 'config/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'seedData/**'
+      - 'standard/deploy-dms.js'
+      - 'standard/seed-descriptors.js'
+      - 'standard/dms/**'
+      - 'standard/*/artifacts/dms-*/**'
+      - 'stack/dms/**'
+      - 'stack/*-dms-*.ps1'
+      - 'tests/bruno/**'
+      - '.github/workflows/dms-e2e.yml'
+  workflow_dispatch:
+    inputs:
+      dms-ref:
+        description: Data-Management-Service ref (tag, branch or commit) for the bootstrap scripts
+        required: false
+        default: v8.1.0
+      dms-image-tag:
+        description: Published DMS image tag (edfialliance/ed-fi-api and ed-fi-api-configuration-service)
+        required: false
+        default: 8.1.0
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+env:
+  # The DMS release the port is tested against (built against 8.1.0-beta2.3, re-tested on 8.1.0).
+  # Move both together when re-baselining.
+  DMS_REF: ${{ inputs.dms-ref || 'v8.1.0' }}
+  DMS_IMAGE_TAG: ${{ inputs.dms-image-tag || '8.1.0' }}
+
+jobs:
+  dms-e2e:
+    name: DMS E2E (${{ matrix.engine }}, Data Standard ${{ matrix.data-standard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [postgresql, mssql]
+        data-standard: ['5.2', '6.1']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout Data-Management-Service
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Ed-Fi-Alliance-OSS/Data-Management-Service
+          ref: ${{ env.DMS_REF }}
+          path: dms
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # The DMS bootstrap publishes its api-schema-tools from source to stage the schema
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Bruno CLI
+        run: npm install -g @usebruno/cli@3.2.0
+
+      - name: Start DMS (published images) with the Populated sample data
+        shell: pwsh
+        working-directory: dms/eng/docker-compose
+        run: |
+          ./bootstrap-published-dms.ps1 -LoadSeedData -SeedTemplate Populated `
+            -DatabaseEngine ${{ matrix.engine }} -DataStandardVersion ${{ matrix.data-standard }}
+
+      # The DMS SQL Server compose file leaves SQL Server Agent off; the OneRoster refresh job needs it
+      - name: Enable SQL Server Agent
+        if: ${{ matrix.engine == 'mssql' }}
+        run: |
+          docker exec dms-mssql /opt/mssql/bin/mssql-conf set sqlagent.enabled true
+          docker restart dms-mssql
+          for _ in $(seq 1 60); do
+            [ "$(docker inspect --format '{{.State.Health.Status}}' dms-mssql)" = healthy ] && exit 0
+            sleep 5
+          done
+          echo "dms-mssql did not become healthy" && exit 1
+
+      # The published stack runs as compose project dms-published, so its DMS container is
+      # dms-published-dms-1 (the local stack names it ed-fi-api); the script restarts it to load the
+      # new claim sets
+      - name: Create the OneRoster clients
+        shell: pwsh
+        run: |
+          ./stack/setup-dms-clients.ps1 -DmsComposeDir "$env:GITHUB_WORKSPACE/dms/eng/docker-compose" `
+            -DatabaseEngine ${{ matrix.engine }} -DmsContainer dms-published-dms-1
+
+      - name: Seed, deploy and start OneRoster
+        shell: pwsh
+        run: ./stack/start-dms-services.ps1 -Rebuild
+
+      - name: Bruno (main collection and tests-dms)
+        shell: pwsh
+        run: ./tests/bruno/run-bruno-dms.ps1
+
+      - name: Service logs
+        if: ${{ failure() }}
+        run: docker logs oneroster-dms 2>&1 | tail -200
+
+      - name: Stop
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          ./stack/stop-dms-services.ps1
+          Push-Location dms/eng/docker-compose
+          ./bootstrap-published-dms.ps1 -d -v -DatabaseEngine ${{ matrix.engine }}
+          Pop-Location
