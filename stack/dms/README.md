@@ -154,8 +154,13 @@ the service parses.
 core in 6.1). `deploy-dms.js` picks `standard/6.1.0/artifacts/dms-pgsql` or `dms-mssql` from the
 data store's `dms."SchemaComponent"`. A different data standard means a different effective schema,
 so the data store is reprovisioned: wipe the stack (`-d -v`) before switching, then rerun the steps
-above. The DS 6.1 projections follow the ODS 6.1 ones
-([data-standard-6.1-support.md](../../docs/design/data-standard-6.1-support.md)).
+above. The DS 6.1 Populated seed loads through the API (about 168,000 records; 4 minutes on
+PostgreSQL, 10 on emulated SQL Server). The wipe gives CMS new credentials, so pass
+`-ClientsFile` / `-EnvFile` to keep each stack's files apart if you switch back and forth. The DS
+6.1 projections follow the ODS 6.1 ones
+([data-standard-6.1-support.md](../../docs/design/data-standard-6.1-support.md)), and the sample
+holds the TPDM schools on both platforms, so parity runs need no excluded education organizations
+(`--exclude-edorgs ''`).
 
 ## Calling the service
 

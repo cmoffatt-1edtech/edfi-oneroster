@@ -194,3 +194,55 @@ Bruno: the main collection passes against DMS (54 requests, 199/199; one more pa
 because of the 13 users), and `tests/bruno/tests-dms` passes 20/20 (no token, malformed token,
 tampered signature, unmapped claim set, roster-core on `/demographics`, School token outside its
 ed-org).
+
+## SQL Server, DS 5.2 (phase 5)
+
+**Run:** 2026-10-29. DMS on SQL Server (`bootstrap-local-dms.ps1 -DatabaseEngine mssql`, same pin,
+same Populated load), projections `standard/5.2.0/artifacts/dms-mssql`, compared with DMS on
+PostgreSQL. The two DMS stacks share container names, so the PostgreSQL side was captured first:
+the seven views as JSON, and the API with `compare-api.js dms-record`.
+
+| Check | Result |
+| --- | --- |
+| Tables against the PostgreSQL views (`dateLastModified` and person keys ignored) | 7/7 identical: orgs 4, academicsessions 7, courses 84, classes 532, users 2,901, enrollments 13,968, demographics 960 (one order-only `children` array) |
+| `compare-api.js dms-vs-recording` | 135 requests (24 collections for the LEA and School clients, 3 single items each, the error cases, roster-core on `/demographics`): 0 differences, same order everywhere |
+| Bruno | 54 requests, 199/199; `tests-dms` 14 requests, 20/20 |
+
+The ODS SQL Server files, which the DMS SQL Server files follow for structure, differ from the ODS
+PostgreSQL files in ways Grand Bend doesn't reach; the port follows PostgreSQL there. The list is
+in the run notes (phase 5).
+
+## Data Standard 6.1 (phase 5)
+
+**Run:** 2026-10-29. ODS/API 7.3.2 on DS 6.1 (`stack/pgsql/.env.6.1.0`, sandbox image
+`7.3.2_6447-6.1.0`, OneRoster `main` @ `db379e0` with `standard/6.1.0/artifacts/pgsql`) against
+DMS on DS 6.1 (`bootstrap-local-dms.ps1 -DataStandardVersion 6.1 -LoadSeedData -SeedTemplate
+Populated`, projections `standard/6.1.0/artifacts/dms-pgsql`).
+
+**Data.** The DS 6.1 Populated seed loads through the API: 168,038 records created, no errors,
+about 4 minutes. DS 6.1 has no separate TPDM extension, and both sides hold the same education
+organizations, including the six TPDM schools (5, 6, 7, 50, 60, 70), so nothing is excluded.
+
+| View | ODS rows | DMS rows | Identical |
+| --- | ---: | ---: | ---: |
+| orgs | 10 | 10 | 10 |
+| academicsessions | 13 | 13 | 13 |
+| courses | 400 | 400 | 400 |
+| classes | 1,954 | 1,954 | 1,954 |
+| users | 5,377 | 5,377 | 5,377 |
+| enrollments | 16,446 | 16,446 | 16,446 |
+| demographics | 2,958 | 2,958 | 2,958 |
+
+`compare-dms-database.sh --exclude-edorgs ''`: 0 differences, no order-only arrays (the DS 6.1
+projections order their aggregated arrays). `compare-api.js ods-vs-dms --exclude-edorgs ''`: 300
+requests, 0 differences, same order everywhere, and no known differences used. The 13 LEA users of
+DS 5.2 don't appear: with the TPDM schools on both sides, the LEA reaches every served org on
+neither platform, so the relationship filter runs on both (see the 13 users above). Bruno against
+DMS: 67 requests, 264/264; `tests-dms` 14 requests, 20/20.
+
+**SQL Server, DS 6.1.** `standard/6.1.0/artifacts/dms-mssql` on DMS on SQL Server (DS 6.1
+Populated seed): the 7 tables identical to the DMS PostgreSQL DS 6.1 views (same counts as above,
+no order-only arrays); `compare-api.js ods-vs-dms` against the live ODS DS 6.1 stack, 300 requests,
+0 differences; `dms-vs-recording` against the PostgreSQL DS 6.1 recording, 150 requests, 0
+differences; Bruno 67 requests 264/264 and 14 requests 20/20.
+

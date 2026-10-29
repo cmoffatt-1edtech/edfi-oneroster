@@ -55,7 +55,9 @@ describe('splitBatches', () => {
 // The artifact sets as committed: what deploy-dms.js will find and need
 describe.each([
   ['5.2.0', 'dms-pgsql', ENGINES.postgres],
-  ['5.2.0', 'dms-mssql', ENGINES.mssql]
+  ['5.2.0', 'dms-mssql', ENGINES.mssql],
+  ['6.1.0', 'dms-pgsql', ENGINES.postgres],
+  ['6.1.0', 'dms-mssql', ENGINES.mssql]
 ])('standard/%s/artifacts/%s', (version, directory, engine) => {
   const dir = path.join(STANDARD, version, 'artifacts', directory);
   const files = [...listArtifactFiles(dir), ...listOrchestrationFiles(dir)];

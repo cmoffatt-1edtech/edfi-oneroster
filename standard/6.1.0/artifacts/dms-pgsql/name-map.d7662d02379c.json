@@ -1,0 +1,6 @@
+{
+  "effectiveSchemaHash": "d7662d02379c6b987e0ef6a68fb0942e2bcf34478c1188c430c079b224f72efc",
+  "relationalMappingVersion": "v3",
+  "dialect": "pgsql",
+  "tables": {}
+}
