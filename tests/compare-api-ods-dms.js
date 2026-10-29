@@ -22,9 +22,20 @@
  *   DMS_LEA_KEY / DMS_LEA_SECRET, DMS_SCHOOL_KEY / DMS_SCHOOL_SECRET
  *   DMS_CORE_KEY / DMS_CORE_SECRET (optional: a client on a roster-core-only claim set)
  * Options: --exclude-edorgs 5,6,7  --samples 3  --page-size 500
+ *   --ods-env <file>  Read the ODS values from an ODS stack env file (stack/pgsql/.env.5.2.0):
+ *                     LEA_KEY, LEA_SECRET, SCHOOL_KEY, SCHOOL_SECRET, and the URLs from BASE_URL,
+ *                     ONEROSTER_API_VIRTUAL_NAME and ODS_API_VIRTUAL_NAME.
+ *   --dms-env <file>  Read the DMS_* values from stack/dms/.env.dms-clients
+ *                     (written by stack/setup-dms-clients.ps1).
+ *   Variables already set in the environment take precedence over both files.
+ *   --known <file>    Differences already explained (JSON, see dms-parity-known-differences.json):
+ *                     they are listed but don't fail the run. Exit code 1 means an unexplained
+ *                     difference.
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
+import dotenv from 'dotenv';
 
 const ROSTER_PATH = 'ims/oneroster/rostering/v1p2';
 const SCOPE = 'https://purl.imsglobal.org/spec/or/v1p2/scope/';
@@ -39,14 +50,60 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const md5 = text => crypto.createHash('md5').update(text).digest('hex');
 
 function parseArgs(argv) {
-  const args = { excluded: ['5', '6', '7'], samples: 3, pageSize: 500 };
+  const args = { excluded: ['5', '6', '7'], samples: 3, pageSize: 500, odsEnv: null, dmsEnv: null, known: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--exclude-edorgs') args.excluded = argv[++i].split(',').map(s => s.trim()).filter(Boolean);
     else if (argv[i] === '--samples') args.samples = Number(argv[++i]);
     else if (argv[i] === '--page-size') args.pageSize = Number(argv[++i]);
+    else if (argv[i] === '--ods-env') args.odsEnv = argv[++i];
+    else if (argv[i] === '--dms-env') args.dmsEnv = argv[++i];
+    else if (argv[i] === '--known') args.known = argv[++i];
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
   return args;
+}
+
+const joinPath = (base, name) => `${base.replace(/\/+$/, '')}/${name.replace(/^\/+/, '')}`;
+
+/**
+ * The ODS_* and DMS_* settings from the stack env files. Keys already in `env` are kept, so an
+ * exported variable overrides a file.
+ */
+export function settingsFromEnvFiles({ odsEnvText, dmsEnvText }, env = process.env) {
+  const settings = {};
+  if (odsEnvText) {
+    const ods = dotenv.parse(odsEnvText);
+    for (const name of ['LEA_KEY', 'LEA_SECRET', 'SCHOOL_KEY', 'SCHOOL_SECRET']) {
+      if (ods[name]) settings[`ODS_${name}`] = ods[name];
+    }
+    if (ods.BASE_URL && ods.ONEROSTER_API_VIRTUAL_NAME) {
+      settings.ODS_ONEROSTER_URL = joinPath(ods.BASE_URL, ods.ONEROSTER_API_VIRTUAL_NAME);
+    }
+    if (ods.BASE_URL && ods.ODS_API_VIRTUAL_NAME) {
+      settings.ODS_TOKEN_URL = joinPath(joinPath(ods.BASE_URL, ods.ODS_API_VIRTUAL_NAME), 'oauth/token');
+    }
+  }
+  if (dmsEnvText) {
+    for (const [name, value] of Object.entries(dotenv.parse(dmsEnvText))) {
+      if (name.startsWith('DMS_')) settings[name] = value;
+    }
+  }
+  return Object.fromEntries(Object.entries(settings).filter(([name]) => !env[name]));
+}
+
+/**
+ * Split differences into those a known-differences entry explains and the rest. An entry matches on
+ * label and kind, and on sourcedId when it lists sourcedIds.
+ */
+export function partitionDifferences(diffs, known = []) {
+  const explained = [];
+  const unexplained = [];
+  for (const diff of diffs) {
+    const entry = known.find(k => k.label === diff.label && k.kind === diff.kind &&
+      (!k.sourcedIds || k.sourcedIds.includes(diff.sourcedId)));
+    (entry ? explained : unexplained).push(entry ? { ...diff, reason: entry.reason } : diff);
+  }
+  return { explained, unexplained };
 }
 
 function requireEnv(name) {
@@ -111,6 +168,10 @@ function isExcluded(item, excludedOrgs, excludedUsers) {
 
 export async function runOdsVsDms(argv) {
   const args = parseArgs(argv);
+  Object.assign(process.env, settingsFromEnvFiles({
+    odsEnvText: args.odsEnv && fs.readFileSync(args.odsEnv, 'utf8'),
+    dmsEnvText: args.dmsEnv && fs.readFileSync(args.dmsEnv, 'utf8')
+  }));
   const ods = { base: `${requireEnv('ODS_ONEROSTER_URL').replace(/\/+$/, '')}/${ROSTER_PATH}`, tokenUrl: requireEnv('ODS_TOKEN_URL') };
   const dms = { base: `${requireEnv('DMS_ONEROSTER_URL').replace(/\/+$/, '')}/${ROSTER_PATH}`, tokenUrl: requireEnv('DMS_TOKEN_URL') };
   const excludedOrgs = new Set(args.excluded.map(md5));
@@ -215,8 +276,14 @@ export async function runOdsVsDms(argv) {
   for (const r of summary) {
     console.log(`${r.label.padEnd(22)} ${String(r.ods).padStart(6)} ${String(r.dms).padStart(6)} ${String(r.identical).padStart(6)} ${String(r.orderOnly).padStart(10)} ${String(r.differ).padStart(6)} ${String(r.onlyOds).padStart(7)} ${String(r.onlyDms).padStart(7)} ${r.sameOrder}`);
   }
-  for (const d of diffs.slice(0, 15)) console.log(JSON.stringify(d).slice(0, 400));
+  const known = args.known ? JSON.parse(fs.readFileSync(args.known, 'utf8')).differences : [];
+  const { explained, unexplained } = partitionDifferences(diffs, known);
+  const reasons = new Map();
+  for (const d of explained) reasons.set(d.reason, (reasons.get(d.reason) || 0) + 1);
+  for (const [reason, count] of reasons) console.log(`known (${count}): ${reason}`);
+  for (const d of unexplained.slice(0, 15)) console.log(JSON.stringify(d).slice(0, 400));
   const orderMismatches = summary.filter(r => !r.sameOrder).length;
-  console.log(`\n${requests} requests; ${diffs.length} difference(s); ${orderMismatches} collection(s) in a different order`);
-  return diffs.length === 0 && orderMismatches === 0 ? 0 : 1;
+  console.log(`\n${requests} requests; ${diffs.length} difference(s), ${explained.length} known, ` +
+    `${unexplained.length} unexplained; ${orderMismatches} collection(s) in a different order`);
+  return unexplained.length === 0 && orderMismatches === 0 ? 0 : 1;
 }

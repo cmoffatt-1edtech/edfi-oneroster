@@ -483,3 +483,35 @@ node tests/compare-database.js
 # Run with authentication
 node tests/compare-api.js --auth
 ```
+
+---
+
+## Running against Ed-Fi API v8 (DMS)
+
+The steps above are for the Ed-Fi ODS/API 7.x. With `PLATFORM=dms` the service
+serves OneRoster from Ed-Fi API v8, the Data Management Service, on PostgreSQL
+and Data Standard 5.2. Three things differ:
+
+- **Tokens** come from the DMS Configuration Service (or Keycloak). Set
+  `OAUTH2_ISSUER`, `OAUTH2_AUDIENCE`, and `OAUTH2_JWKS_URL` or
+  `OAUTH2_METADATA_URL` instead of `OAUTH2_ISSUERBASEURL` and
+  `OAUTH2_PUBLIC_KEY_PEM`. A DMS token's `scope` is the client's claim-set
+  name, so `ONEROSTER_CLAIMSET_SCOPES` maps claim sets to OneRoster scopes.
+- **Data stores** come from the Configuration Service (`CONFIG_SERVICE_*`) or
+  from `DATA_STORES`, not from `EdFi_Admin`.
+- **Schema deployment.** The descriptors go in through the Ed-Fi API
+  (`node standard/seed-descriptors.js`) and the projections through
+  `node standard/deploy-dms.js`, not `deploy-pgsql.js`.
+
+`.env.example` lists every DMS variable under "Ed-Fi API v8 (DMS)". The
+quickest way to a working setup is the local DMS stack in
+[stack/dms/README.md](../stack/dms/README.md). Its scripts create the
+clients, seed, deploy and start the service in Docker. To run the service on
+the host against that stack instead, start from `stack/dms/.env.dms`. Inside
+the DMS network the Configuration Service is `http://config:8081` and the
+database is `dms-postgresql:5432`. From the host they're `http://localhost:8081`
+and `localhost:5435`, and the connection strings that CMS hands out name
+`dms-postgresql`. So on the host, point `OAUTH2_JWKS_URL` at
+`http://localhost:8081/.well-known/jwks.json`, keep `OAUTH2_ISSUER` as it is (it
+must equal the tokens' `iss`), and use `DATA_STORES` with a `localhost:5435`
+connection string in place of the `CONFIG_SERVICE_*` settings. Testing: [tests/README.md](../tests/README.md#testing-against-ed-fi-api-v8-dms).

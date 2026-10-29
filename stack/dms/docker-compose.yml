@@ -6,16 +6,22 @@
 # OneRoster on Ed-Fi API v8 (DMS): runs the service from this repository on the DMS compose
 # network, where the Configuration Service and the data-store database resolve by name
 # (connection strings from CMS name hosts such as dms-postgresql).
-#   cp .env.dms.5.2.0.example .env.dms   # then fill in the credentials
-#   docker compose -f stack/dms/docker-compose.yml up -d --build
+# Use stack/start-dms-services.ps1 and stop-dms-services.ps1 (see README.md in this folder).
+name: oneroster-dms
+
 services:
   oneroster-dms:
     build:
       context: ../..
       dockerfile: Dockerfile
-    image: edfi-oneroster:dms-local
+    image: ${ONEROSTER_IMAGE:-edfi-oneroster:dms-local}
     container_name: oneroster-dms
-    env_file: .env.dms
+    user: appuser
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    env_file: ${ONEROSTER_DMS_ENV_FILE:-.env.dms}
     ports:
       - "127.0.0.1:${ONEROSTER_DMS_PORT:-3200}:3000"
     networks:
