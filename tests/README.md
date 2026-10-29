@@ -255,6 +255,98 @@ encryption on, certificate validated. Against a local SQL Server add
 `DB_TRUST_SERVER_CERTIFICATE=true`; `DB_ENCRYPT=false` disables encryption
 entirely and `DB_SSL_CA=/path/to/ca.pem` supplies an internal CA.
 
+## Testing against Ed-Fi API v8 (DMS)
+
+These need the local DMS stack from [stack/dms/README.md](../stack/dms/README.md),
+with `stack/dms/.env.dms-clients` written by `stack/setup-dms-clients.ps1`. The
+parity checks also need the ODS/API stack (`stack/start-services.ps1`, PostgreSQL,
+DS 5.2) running with the same Grand Bend data. Run them from the repository root
+after `npm ci`. The service allows 100 requests a minute per client, so leave a
+minute between runs.
+
+### Bruno
+
+```powershell
+pwsh ./tests/bruno/run-bruno-dms.ps1
+```
+
+This runs the main collection (`tests`) and the DMS-only checks (`tests-dms`:
+no token, malformed token, tampered signature, unmapped claim set, roster-core
+client on `/demographics`, School client outside its ed-org) with
+`environments/dms.bru`. Credentials go to Bruno through the environment and are
+never printed. Expected on Grand Bend: 54 requests, 199/199 tests, and 14
+requests, 20/20.
+
+### API parity with the ODS/API (`ods-vs-dms`)
+
+```bash
+NODE_EXTRA_CA_CERTS=stack/ssl/server.crt node tests/compare-api.js ods-vs-dms \
+  --ods-env stack/pgsql/.env.5.2.0 \
+  --dms-env stack/dms/.env.dms-clients \
+  --known tests/dms-parity-known-differences.json
+```
+
+For an LEA and a School client on each platform, this pages every collection,
+fetches three items per collection by id, and compares six error responses and the
+roster-core client on `/demographics`. Bodies are compared item by item, ignoring
+`dateLastModified`. The ODS sandbox's TPDM schools (5, 6, 7) are excluded because
+the DMS sample data doesn't have them. `--ods-env` and `--dms-env` read the client
+keys and URLs from the two stacks' env files. Variables already set in the
+environment (`ODS_LEA_KEY`, `DMS_ONEROSTER_URL`, ...; see the script header) take
+precedence. `NODE_EXTRA_CA_CERTS` trusts the ODS stack's self-signed certificate.
+Point it at `stack/ssl/server.crt` in the checkout that runs the ODS stack.
+
+Differences listed in `--known` are reported with their reason but don't fail the
+run. The only one is 13 LEA users that DMS returns; the parity report explains
+them. Exit code 0 means no unexplained differences. Expected: 270 requests,
+13 differences, 13 known, 0 unexplained.
+
+### DMS on SQL Server against DMS on PostgreSQL (`dms-record`, `dms-vs-recording`)
+
+The two DMS stacks use the same container names, so only one runs at a time. Record the
+service on one engine, switch stacks, then compare the other engine with the recording:
+
+```bash
+# On the PostgreSQL DMS stack
+node tests/compare-api.js dms-record --dms-env stack/dms/.env.dms-clients \
+  --out /tmp/dms-pgsql.recording.json --name PostgreSQL
+# ...switch to the SQL Server DMS stack (stack/dms/README.md, "SQL Server")...
+node tests/compare-api.js dms-vs-recording --dms-env stack/dms/.env.dms-clients.mssql \
+  --recording /tmp/dms-pgsql.recording.json --name "SQL Server"
+```
+
+The recording holds every response the comparison uses (collections paged in full for the LEA
+and School clients, three items each by id, the error cases and the roster-core case), with no
+credentials; it is written with mode 600 because it holds the sample data. The comparison
+fetches the same items and reports differences as `ods-vs-dms` does, with no excluded
+education organizations. Expected on Grand Bend: 135 requests, 0 differences. Both stacks must
+hold the same data: the same seed, plus the OneRoster descriptors.
+
+### Database parity
+
+```bash
+ODS_PG="host=db-ods;port=5432;username=postgres;password=<ods password>;database=EdFi_Ods" \
+DMS_PG="host=dms-postgresql;port=5432;username=postgres;password=<dms password>;database=edfi_datamanagementservice" \
+  tests/compare-dms-database.sh
+```
+
+This compares the seven `oneroster12` views row by row in a throwaway container
+on both stacks' networks. Expected: `PARITY: 0 row/type difference(s)`. Method and
+results: [docs/design/dms-parity-report.md](../docs/design/dms-parity-report.md).
+
+### Synthetic fixture parity
+
+```bash
+ODS_PG="..." DMS_PG="..." tests/compare-dms-fixture.sh
+```
+
+Grand Bend leaves many branches of the views unexercised. This loads the synthetic data in
+`tests/dms-parity-fixture.js` into both databases, runs each view's SQL on the result, compares
+the fixture's rows across platforms, checks them against the expected values in the fixture, and
+rolls both databases back. It needs the same superuser settings as the database parity check,
+and it doesn't refresh or lock the materialized views. Expected: `FIXTURE PARITY: 0 problem(s)`
+and `56/56` expectations on each platform.
+
 ## Development Scripts
 
 ### Deployment Script

@@ -16,6 +16,13 @@ For lightweight dev workflows that run only the OneRoster API against a
 pre-existing database, see `docker-compose.dev.yml` and
 `docker-compose.dev-dual.yml` in the repo root.
 
+Everything below is about the Ed-Fi ODS/API 7.x stack. To run OneRoster on
+Ed-Fi API v8 (the Data Management Service, `PLATFORM=dms`), use the separate
+scripts `setup-dms-clients.ps1`, `start-dms-services.ps1` and
+`stop-dms-services.ps1`, described in [dms/README.md](dms/README.md). The DMS
+stack itself comes from the Ed-Fi Data-Management-Service repository. Both
+stacks can run side by side: they use different networks and ports.
+
 ## Prerequisites
 
 - Docker Engine with Docker Compose support
