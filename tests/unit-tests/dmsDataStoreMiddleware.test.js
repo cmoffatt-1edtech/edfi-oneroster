@@ -16,7 +16,7 @@ function createProvider(lists, overrides = {}) {
   const queue = [...lists];
   return {
     listDataStores: jest.fn(async () => (queue.length > 1 ? queue.shift() : queue[0])),
-    isTenant: jest.fn(async tenant => tenant.toLowerCase() === 'tenant1'),
+    resolveTenant: jest.fn(async tenant => (tenant?.toLowerCase() === 'tenant1' ? 'Tenant1' : null)),
     isClientBoundToTenant: jest.fn(async clientId => clientId === 'bound-client'),
     ...overrides
   };
@@ -122,6 +122,18 @@ describe('createDmsDataStoreMiddleware', () => {
     test('routes within the tenant and keys the cache by tenant', async () => {
       const provider = createProvider([[store(1)]]);
       const { req, next } = await run(multiTenant(provider), { params: { tenantId: 'Tenant1' } });
+
+      expect(next).toHaveBeenCalled();
+      expect(provider.isClientBoundToTenant).toHaveBeenCalledWith('bound-client', 'Tenant1');
+      expect(provider.listDataStores).toHaveBeenCalledWith('Tenant1');
+      expect(req.tenantId).toBe('Tenant1');
+      expect(req.odsCacheKey).toBe('tenant-Tenant1-datastore-1');
+    });
+
+    test('uses the Configuration Service spelling of a tenant routed in another case', async () => {
+      // Found live: /districta registered a second connection pool for DistrictA's data store
+      const provider = createProvider([[store(1)]]);
+      const { req, next } = await run(multiTenant(provider), { params: { tenantId: 'TENANT1' } });
 
       expect(next).toHaveBeenCalled();
       expect(provider.isClientBoundToTenant).toHaveBeenCalledWith('bound-client', 'Tenant1');

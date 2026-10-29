@@ -5,11 +5,11 @@ Management Service (DMS) and its Configuration Service (CMS), started from the E
 [Data-Management-Service](https://github.com/Ed-Fi-Alliance-OSS/Data-Management-Service)
 repository. **For development and demos only, not production.**
 
-Supported here: PostgreSQL or SQL Server, Data Standard 5.2 or 6.1, single tenant, the CMS
-self-contained identity provider, and the Populated (Grand Bend) sample data. The service also
-supports route qualifiers and multi-tenant DMS (see `.env.example`), but these scripts don't set
-them up. PostgreSQL and DS 5.2 are the defaults; see [SQL Server](#sql-server) and
-[Data Standard 6.1](#data-standard-61).
+Supported here: PostgreSQL or SQL Server, Data Standard 5.2 or 6.1, single tenant or
+[multi-tenant](#multi-tenant-dms), the CMS self-contained identity provider, and the Populated
+(Grand Bend) sample data. The service also supports route qualifiers (see `.env.example`), but
+these scripts don't set them up. PostgreSQL, DS 5.2 and a single tenant are the defaults; see
+[SQL Server](#sql-server) and [Data Standard 6.1](#data-standard-61).
 
 ## Prerequisites
 
@@ -43,8 +43,8 @@ token and call it, see [Calling the service](#calling-the-service).
 
 | Script | What it does |
 | --- | --- |
-| `setup-dms-clients.ps1` | Creates the OneRoster claim sets, vendor and applications in CMS (table below). Writes `dms/.env.dms-clients` (credentials and URLs) and `dms/.env.dms` (service settings), both git-ignored and readable only by you. Restarts the DMS container after creating a claim set, because DMS caches claim sets for 10 minutes. Idempotent: it keeps existing objects and credentials, puts back an application's claim set or ed-org if it changed, and stops before writing anything if an application is on another data store. |
-| `start-dms-services.ps1` | Builds the image if needed (`-Rebuild` forces it). Seeds the OneRoster descriptors and descriptor mappings through the Ed-Fi API (`standard/seed-descriptors.js`), deploys the `oneroster12` projections into every data store CMS lists, and creates the pg-boss database (`standard/deploy-dms.js --from-cms --jobs-database`). Then starts the service and waits for its health check. Every step runs in a container on the DMS network. `-SkipSeed` and `-SkipDeploy` start the service only. |
+| `setup-dms-clients.ps1` | Creates the OneRoster claim sets, vendor and applications in CMS (table below). Writes `dms/.env.dms-clients` (credentials and URLs) and `dms/.env.dms` (service settings), both git-ignored and readable only by you. Restarts the DMS container after creating a claim set, because DMS caches claim sets for 10 minutes. Idempotent: it keeps existing objects and credentials, puts back an application's claim set or ed-org if it changed, and stops before writing anything if an application is on another data store. `-Tenant` works in one tenant of a [multi-tenant](#multi-tenant-dms) stack. |
+| `start-dms-services.ps1` | Builds the image if needed (`-Rebuild` forces it). Seeds the OneRoster descriptors and descriptor mappings through the Ed-Fi API (`standard/seed-descriptors.js`), deploys the `oneroster12` projections into every data store CMS lists, and creates the pg-boss database (`standard/deploy-dms.js --from-cms --jobs-database`). Then starts the service and waits for its health check. Every step runs in a container on the DMS network. `-SkipSeed` and `-SkipDeploy` start the service only. Given one clients file per tenant, it seeds and deploys each tenant. |
 | `stop-dms-services.ps1` | Stops and removes the service container. `-Purge` also removes the image. DMS keeps running. Fails if Docker does, so a wipe doesn't follow a stop that didn't happen. |
 
 What `setup-dms-clients.ps1` creates:
@@ -74,6 +74,7 @@ the DMS stack's `eng/docker-compose/.env`.
 | `.env.dms.5.2.0.mssql.example` | The same for a DMS stack on SQL Server: `DB_TYPE=mssql`, no pg-boss. `setup-dms-clients.ps1 -DatabaseEngine mssql` uses it. The service settings don't depend on the data standard, so it serves DS 6.1 as well. |
 | `.env.dms` | Written by `setup-dms-clients.ps1` from the example; kept on later runs unless `-Force`. |
 | `.env.dms-clients` | Written by `setup-dms-clients.ps1`: client credentials and the DMS, CMS and OneRoster URLs. |
+| `.env.dms.multitenant`, `.env.dms-clients.<tenant>` | The [multi-tenant](#multi-tenant-dms) equivalents: one service env file, one clients file per tenant. Any names work; these are the ones the examples use. |
 
 Inside the DMS network, CMS answers as `http://config:8081`, but the tokens it issues carry
 `iss` = `http://ed-fi-api-config:8081`. That host name only resolves inside the DMS container, so
@@ -180,6 +181,71 @@ PostgreSQL, 10 on emulated SQL Server). The wipe gives CMS new credentials, so p
 holds the TPDM schools on both platforms, so parity runs need no excluded education organizations
 (`--exclude-edorgs ''`).
 
+## Multi-tenant DMS
+
+With `DMS_MULTI_TENANCY` and `CONFIGURATION_SERVICE_MULTI_TENANCY` set to `true`, DMS takes the
+tenant as the first path segment (`/{tenant}/data/ed-fi/...`), and so does the service:
+`/{tenant}/ims/oneroster/rostering/v1p2/`. Each tenant has its own data stores, vendors and
+applications in CMS. Tested on PostgreSQL with two tenants, each with its own database.
+
+The DMS scripts read the tenant from `DMS_CONFIGURATION_SERVICE_TENANT`, so make one env file per
+tenant: a copy of the stack's `eng/docker-compose/.env` with the two multi-tenancy settings set to
+`true` and `DMS_CONFIGURATION_SERVICE_TENANT` set to the tenant name.
+
+```powershell
+# 1. DMS and the first tenant. On a fresh stack the bootstrap's claims check sends the Tenant
+#    header before its configure step creates the tenant, and fails with 400 "Tenant not found".
+#    CMS is up by then: create the tenant (POST http://localhost:8081/v3/tenants {"name":"DistrictA"}
+#    with a token for the CMS admin client), then run the same command again. The rerun is safe
+#    because no data store exists yet.
+cd <Data-Management-Service>/eng/docker-compose
+pwsh ./bootstrap-local-dms.ps1 -EnvironmentFile <.env.districta> -LoadSeedData -SeedTemplate Populated -EnableSwaggerUI
+
+# 2. Each further tenant, in its own database (configure creates the tenant)
+pwsh ./configure-local-data-store.ps1 -EnvironmentFile <.env.districtb> -DataStoreDatabaseName edfi_dms_districtb
+pwsh ./provision-dms-schema.ps1 -EnvironmentFile <.env.districtb>
+docker restart ed-fi-api
+pwsh ./load-dms-seed-data.ps1 -EnvironmentFile <.env.districtb> -SeedTemplate Minimal
+
+# 3. OneRoster clients, once per tenant, all writing the same service env file
+cd <edfi-oneroster>/stack
+pwsh ./setup-dms-clients.ps1 -DmsComposeDir <Data-Management-Service>/eng/docker-compose `
+  -DmsEnvironmentFile <.env.districta> -Tenant DistrictA `
+  -ClientsFile dms/.env.dms-clients.districta -EnvFile dms/.env.dms.multitenant
+pwsh ./setup-dms-clients.ps1 -DmsComposeDir <Data-Management-Service>/eng/docker-compose `
+  -DmsEnvironmentFile <.env.districtb> -Tenant DistrictB `
+  -ClientsFile dms/.env.dms-clients.districtb -EnvFile dms/.env.dms.multitenant
+
+# 4. Descriptors and projections in each tenant, then the service
+pwsh ./start-dms-services.ps1 -Rebuild -EnvFile dms/.env.dms.multitenant `
+  -ClientsFile dms/.env.dms-clients.districta,dms/.env.dms-clients.districtb
+```
+
+What changes with tenants:
+
+- **CMS client.** The service checks the route tenant against `/v3/tenants`, which the
+  `authMetadata_readonly_access` scope can't read. With `-Tenant`, `setup-dms-clients.ps1` writes
+  `MULTITENANCY_ENABLED=true` and the DMS stack's own CMS client (`CMSReadOnlyAccess`, scope
+  `edfi_admin_api/readonly_access`) into the service env file. The service warns at startup if a
+  multi-tenant configuration keeps the default scope.
+- **Routing.** An unknown tenant is 404. The tenant matches without regard to case, as in DMS.
+  A client whose application belongs to another tenant gets 401, as on the ODS. DMS itself
+  answers 404 to that request, because the client's data store isn't one of that tenant's.
+- **Clients files.** Each one has `DMS_TENANT` and the tenant-prefixed `DMS_ONEROSTER_URL` and
+  `DMS_TOKEN_URL`, so the tests run against a tenant as they are:
+  `pwsh tests/bruno/run-bruno-dms.ps1 -ClientsFile stack/dms/.env.dms-clients.districta -ServiceEnvFile stack/dms/.env.dms.multitenant`.
+- **Claim sets.** CMS keeps claim set names unique across tenants, but a tenant lists only its
+  own claim sets and the system-reserved ones. `setup-dms-clients.ps1` creates `OneRoster-ReadOnly`
+  and `OneRoster-Core` in the first tenant. Later tenants' applications use them by name, with a
+  warning: CMS doesn't check an application's claim set name, and the token carries the name,
+  which is all the service maps. For a real deployment, register the two as system-reserved claim
+  sets, which every tenant shares (a claims fragment; see the DMS repository's
+  `docs/CLAIMS-LOADING-GUIDE.md`). That route hasn't been tried here.
+- **Refresh.** One pg-boss database and one schedule serve every tenant. Each data store's views
+  refresh only when its own sources changed.
+- **Discovery and Swagger.** Discovery URLs carry a `{tenantIdentifier}` placeholder, and the
+  Swagger document's server has a tenant variable listing the CMS tenants.
+
 ## Calling the service
 
 Tokens come from DMS (`http://localhost:8080/oauth/token`, which forwards to CMS) with the
@@ -211,5 +277,6 @@ Tests (Bruno, API parity with the ODS stack, database parity) are in
 | 429 from the token endpoint | The 15-active-token limit. Wait for tokens to expire (30 minutes). |
 | Every request gets 401, and `docker logs oneroster-dms` shows `Issuer claim mismatch` | `OAUTH2_ISSUER` must equal the `iss` claim exactly (`http://ed-fi-api-config:8081` on this stack). |
 | `bootstrap-local-dms.ps1` on a stopped stack fails with 400 "A data store with this name already exists" | The bootstrap isn't rerunnable on kept volumes. Use `start-local-dms.ps1 -EnableSwaggerUI`. |
+| Multi-tenant `bootstrap-local-dms.ps1` fails at the claims check with 400 "Tenant not found" | The check sends the Tenant header before the tenant exists. Create the tenant in CMS, then rerun; see [Multi-tenant DMS](#multi-tenant-dms). |
 | `-RestoreTemplate Populated` fails | The package feed has no template attestation packages. Use `-LoadSeedData -SeedTemplate Populated`. |
 | `api-schema-tools … You must install .NET` during the DMS bootstrap | Homebrew .NET on macOS: `export DOTNET_ROOT=/opt/homebrew/opt/dotnet/libexec`. |

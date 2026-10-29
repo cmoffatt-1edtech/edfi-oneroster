@@ -28,6 +28,10 @@
     oneroster12 schema with the database, and new descriptors are needed. Rerun this script after
     every reprovision; steps 2 and 3 are what bring OneRoster back.
 
+    Multi-tenant DMS: give -ClientsFile one file per tenant, as setup-dms-clients.ps1 -Tenant
+    writes them. Steps 2 and 3 then run for each tenant: seeding through the tenant's Ed-Fi API
+    routes as that tenant's seeder, and deploying into the data stores of that tenant only.
+
 .EXAMPLE
     pwsh ./start-dms-services.ps1 -Rebuild
     Rebuilds the image from this checkout, seeds, deploys and starts the service.
@@ -35,6 +39,10 @@
 .EXAMPLE
     pwsh ./start-dms-services.ps1 -SkipSeed -SkipDeploy
     Starts the service only (the data store already has the descriptors and projections).
+
+.EXAMPLE
+    pwsh ./start-dms-services.ps1 -EnvFile dms/.env.dms.multitenant -ClientsFile dms/.env.dms-clients.districta,dms/.env.dms-clients.districtb
+    Multi-tenant: seeds and deploys each tenant, then starts the service.
 #>
 
 param(
@@ -54,9 +62,9 @@ param(
     [string]
     $EnvFile = "dms/.env.dms",
 
-    # Client credentials, relative to stack/
-    [string]
-    $ClientsFile = "dms/.env.dms-clients",
+    # Client credentials, relative to stack/. Multi-tenant: one file per tenant.
+    [string[]]
+    $ClientsFile = @("dms/.env.dms-clients"),
 
     # The Ed-Fi API as seen from the DMS network (its discovery document names the token URL)
     [string]
@@ -104,14 +112,27 @@ function Get-JobsDatabaseName {
 
 $composeFile = Join-Path -Path $scriptDir -ChildPath "dms/docker-compose.yml"
 $envFilePath = Resolve-StackPath $EnvFile
-$clientsFilePath = Resolve-StackPath $ClientsFile
-foreach ($file in @($envFilePath, $clientsFilePath)) {
+# pwsh -File passes "a,b" as one string, so split it here
+$clientsFilePaths = @($ClientsFile | ForEach-Object { $_ -split "," } | Where-Object { $_.Trim() } | ForEach-Object { Resolve-StackPath $_.Trim() })
+foreach ($file in @($envFilePath) + $clientsFilePaths) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw "$file was not found. Run setup-dms-clients.ps1 first."
     }
 }
 $serviceEnv = ReadValuesFromEnvFile -EnvironmentFile $envFilePath
-$clients = ReadValuesFromEnvFile -EnvironmentFile $clientsFilePath
+
+# One entry per tenant; a single entry without a tenant on a single-tenant service
+$tenants = @(foreach ($path in $clientsFilePaths) {
+    $values = ReadValuesFromEnvFile -EnvironmentFile $path
+    @{ Path = $path; Tenant = $values["DMS_TENANT"]; Clients = $values }
+})
+$multiTenant = $serviceEnv["MULTITENANCY_ENABLED"] -eq "true"
+if ($multiTenant -and @($tenants | Where-Object { [string]::IsNullOrWhiteSpace($_.Tenant) }).Count -gt 0) {
+    throw "MULTITENANCY_ENABLED is true in $EnvFile, so every clients file needs DMS_TENANT (setup-dms-clients.ps1 -Tenant writes it)."
+}
+if (-not $multiTenant -and ($tenants.Count -ne 1 -or -not [string]::IsNullOrWhiteSpace($tenants[0].Tenant))) {
+    throw "MULTITENANCY_ENABLED is not true in ${EnvFile}: give one clients file, without DMS_TENANT."
+}
 
 $network = if ($env:DMS_NETWORK) { $env:DMS_NETWORK } else { "dms" }
 docker network inspect $network 2>&1 | Out-Null
@@ -129,34 +150,42 @@ if ($Rebuild -or $LASTEXITCODE -ne 0) {
     Invoke-Compose @("build", "oneroster-dms")
 }
 
-if (-not $SkipSeed) {
-    Write-Host "Seeding OneRoster descriptors and descriptor mappings..." -ForegroundColor Cyan
-    # Passed by name only (-e NAME), so the values never appear on a command line
-    $env:SEED_CLIENT_ID = $clients["DMS_SEEDER_KEY"]
-    $env:SEED_CLIENT_SECRET = $clients["DMS_SEEDER_SECRET"]
-    try {
-        if ([string]::IsNullOrWhiteSpace($env:SEED_CLIENT_ID) -or [string]::IsNullOrWhiteSpace($env:SEED_CLIENT_SECRET)) {
-            throw "DMS_SEEDER_KEY and DMS_SEEDER_SECRET must be set in $ClientsFile."
-        }
-        Invoke-Compose @("run", "--rm", "--no-deps", "-e", "SEED_CLIENT_ID", "-e", "SEED_CLIENT_SECRET",
-            "oneroster-dms", "node", "standard/seed-descriptors.js", "--api-url", $DmsInternalUrl)
-    }
-    finally {
-        Remove-Item Env:SEED_CLIENT_ID, Env:SEED_CLIENT_SECRET -ErrorAction SilentlyContinue
-    }
-}
+foreach ($entry in $tenants) {
+    $forTenant = if ($entry.Tenant) { " (tenant $($entry.Tenant))" } else { "" }
 
-if (-not $SkipDeploy) {
-    if ($serviceEnv["DB_TYPE"] -eq "mssql") {
-        Write-Host "Deploying the OneRoster projections (SQL Server)..." -ForegroundColor Cyan
-        Invoke-Compose @("run", "--rm", "--no-deps", "oneroster-dms",
-            "node", "standard/deploy-dms.js", "--from-cms")
+    if (-not $SkipSeed) {
+        Write-Host "Seeding OneRoster descriptors and descriptor mappings$forTenant..." -ForegroundColor Cyan
+        # A multi-tenant Ed-Fi API serves its discovery document and data under /{tenant}
+        $apiUrl = if ($entry.Tenant) { "$($DmsInternalUrl.TrimEnd('/'))/$($entry.Tenant)" } else { $DmsInternalUrl }
+        # Passed by name only (-e NAME), so the values never appear on a command line
+        $env:SEED_CLIENT_ID = $entry.Clients["DMS_SEEDER_KEY"]
+        $env:SEED_CLIENT_SECRET = $entry.Clients["DMS_SEEDER_SECRET"]
+        try {
+            if ([string]::IsNullOrWhiteSpace($env:SEED_CLIENT_ID) -or [string]::IsNullOrWhiteSpace($env:SEED_CLIENT_SECRET)) {
+                throw "DMS_SEEDER_KEY and DMS_SEEDER_SECRET must be set in $($entry.Path)."
+            }
+            Invoke-Compose @("run", "--rm", "--no-deps", "-e", "SEED_CLIENT_ID", "-e", "SEED_CLIENT_SECRET",
+                "oneroster-dms", "node", "standard/seed-descriptors.js", "--api-url", $apiUrl)
+        }
+        finally {
+            Remove-Item Env:SEED_CLIENT_ID, Env:SEED_CLIENT_SECRET -ErrorAction SilentlyContinue
+        }
     }
-    else {
-        $jobsDatabase = Get-JobsDatabaseName -ServiceEnv $serviceEnv
-        Write-Host "Deploying the OneRoster projections and the pg-boss database ($jobsDatabase)..." -ForegroundColor Cyan
-        Invoke-Compose @("run", "--rm", "--no-deps", "oneroster-dms",
-            "node", "standard/deploy-dms.js", "--from-cms", "--jobs-database", $jobsDatabase)
+
+    if (-not $SkipDeploy) {
+        $deployArgs = @("run", "--rm", "--no-deps", "oneroster-dms", "node", "standard/deploy-dms.js", "--from-cms")
+        if ($entry.Tenant) {
+            $deployArgs += @("--tenant", $entry.Tenant)
+        }
+        if ($serviceEnv["DB_TYPE"] -eq "mssql") {
+            Write-Host "Deploying the OneRoster projections (SQL Server)$forTenant..." -ForegroundColor Cyan
+        }
+        else {
+            $jobsDatabase = Get-JobsDatabaseName -ServiceEnv $serviceEnv
+            Write-Host "Deploying the OneRoster projections and the pg-boss database ($jobsDatabase)$forTenant..." -ForegroundColor Cyan
+            $deployArgs += @("--jobs-database", $jobsDatabase)
+        }
+        Invoke-Compose $deployArgs
     }
 }
 

@@ -102,6 +102,10 @@ describe('DMS data-store providers', () => {
 
       expect(await provider.isTenant('tenant1')).toBe(true);
       expect(await provider.isTenant('Tenant2')).toBe(false);
+      expect(await provider.resolveTenant('TENANT1')).toBe('Tenant1');
+      expect(await provider.resolveTenant('Tenant1')).toBe('Tenant1');
+      expect(await provider.resolveTenant('Tenant2')).toBeNull();
+      expect(await provider.resolveTenant(null)).toBeNull();
       expect(await provider.listTenants()).toEqual(['Tenant1']);
       expect(client.getTenants).toHaveBeenCalledTimes(1);
       expect(await provider.isClientBoundToTenant('bound', 'Tenant1')).toBe(true);

@@ -14,6 +14,7 @@ import { getLogger } from '../../utils/logger.js';
  *   listDataStores(tenantId, { reload }) -> [{ id, name, contexts: { key: value }, connectionVersion, ... }]
  *   resolveRefreshConnectionString({ tenantId, dataStoreId }) -> the primary, when queries go to a
  *     read replica; null when the query connection is the primary
+ *   resolveTenant(tenantId) -> the tenant name as the Configuration Service spells it, or null
  *   isTenant(tenantId), isClientBoundToTenant(clientId, tenantId), checkHealth()
  */
 
@@ -83,7 +84,7 @@ export function createConfigurationServiceDataStoreProvider({
   now = Date.now
 }) {
   const dataStoreCache = new Map(); // tenant key -> { expiresAt, dataStores }
-  let tenantCache = null; // { expiresAt, names: Set }
+  let tenantCache = null; // { expiresAt, names: [], byKey: Map(lower-case name -> name) }
 
   async function listDataStores(tenantId = null, { reload = false } = {}) {
     const key = tenantKey(tenantId);
@@ -122,9 +123,15 @@ export function createConfigurationServiceDataStoreProvider({
   async function loadTenants() {
     if (!tenantCache || now() >= tenantCache.expiresAt) {
       const names = (await client.getTenants() || []).map(t => String(t.name));
-      tenantCache = { expiresAt: now() + TENANT_CACHE_MS, names, keys: new Set(names.map(name => name.toLowerCase())) };
+      tenantCache = { expiresAt: now() + TENANT_CACHE_MS, names, byKey: new Map(names.map(name => [tenantKey(name), name])) };
     }
     return tenantCache;
+  }
+
+  async function resolveTenant(tenantId) {
+    if (!tenantId) return null;
+    const { names, byKey } = await loadTenants();
+    return names.includes(tenantId) ? tenantId : byKey.get(tenantKey(tenantId)) || null;
   }
 
   return {
@@ -146,8 +153,14 @@ export function createConfigurationServiceDataStoreProvider({
       return queriesReplica(dataStore) ? decrypt(dataStore, dataStore.connectionString) : null;
     },
 
+    /**
+     * DMS matches the route tenant without regard to case. Callers key connections and caches by
+     * the name this returns, so /districta and /DistrictA share one connection pool.
+     */
+    resolveTenant,
+
     async isTenant(tenantId) {
-      return (await loadTenants()).keys.has(tenantKey(tenantId));
+      return (await resolveTenant(tenantId)) !== null;
     },
 
     /** Tenant names as the Configuration Service spells them (cached like isTenant). */
@@ -219,6 +232,10 @@ export function createStaticDataStoreProvider({ dataStores, encryptionKey = null
     },
 
     resolveRefreshConnectionString() {
+      return Promise.resolve(null);
+    },
+
+    resolveTenant() {
       return Promise.resolve(null);
     },
 

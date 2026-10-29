@@ -28,6 +28,14 @@
       Service read-only secret, the connection-string encryption key and the PostgreSQL password
       filled in. An existing file is kept unless -Force is given.
 
+    For a multi-tenant DMS stack (DMS_MULTI_TENANCY and CONFIGURATION_SERVICE_MULTI_TENANCY true),
+    run the script once per tenant with -Tenant and a -ClientsFile per tenant. Every
+    Configuration Service call then carries the Tenant header, and the clients file gets
+    DMS_TENANT and the tenant-prefixed OneRoster and token URLs. A new service env file gets
+    MULTITENANCY_ENABLED=true and the DMS stack's own Configuration Service client
+    (DMS_CONFIGURATION_SERVICE_CLIENT_ID, scope edfi_admin_api/readonly_access): the service reads
+    /v3/tenants, which the authMetadata_readonly_access scope can't.
+
     For a DMS stack on SQL Server (bootstrap-local-dms.ps1 -DatabaseEngine mssql), pass
     -DatabaseEngine mssql: the service environment comes from dms/.env.dms.5.2.0.mssql.example
     (DB_TYPE=mssql, no pg-boss) and needs no database password. -ClientsFile and -EnvFile keep the
@@ -63,6 +71,10 @@ param(
     [string]
     $DmsComposeDir = $env:DMS_COMPOSE_DIR,
 
+    # The DMS stack's env file when it isn't <DmsComposeDir>/.env (bootstrap-local-dms.ps1 -EnvironmentFile)
+    [string]
+    $DmsEnvironmentFile,
+
     # Configuration Service and DMS URLs from the host
     [string]
     $CmsUrl = "http://localhost:8081",
@@ -83,9 +95,13 @@ param(
     [string]
     $VendorName = "1EdTech OneRoster (local)",
 
-    # Data store for the applications. 0 means the only data store CMS lists.
+    # Data store for the applications. 0 means the only data store CMS lists (in -Tenant).
     [long]
     $DataStoreId = 0,
+
+    # Multi-tenant DMS: the Configuration Service tenant to create the clients in
+    [string]
+    $Tenant,
 
     # The CMS client the service uses to read data stores. The DMS stack scripts create this one.
     [string]
@@ -189,6 +205,9 @@ function Invoke-Cms {
         Uri     = "$CmsUrl$Path"
         Headers = @{ Authorization = "Bearer $script:adminToken" }
     }
+    if ($Tenant) {
+        $params.Headers.Tenant = $Tenant
+    }
     if ($null -ne $Body) {
         $params.Body = ($Body | ConvertTo-Json -Depth 5 -Compress)
         $params.ContentType = "application/json"
@@ -230,7 +249,7 @@ function Format-EnvValue {
 if ([string]::IsNullOrWhiteSpace($DmsComposeDir)) {
     throw "Set -DmsComposeDir (or DMS_COMPOSE_DIR) to the Data-Management-Service eng/docker-compose directory."
 }
-$dmsEnvFile = Join-Path -Path $DmsComposeDir -ChildPath ".env"
+$dmsEnvFile = if ($DmsEnvironmentFile) { $DmsEnvironmentFile } else { Join-Path -Path $DmsComposeDir -ChildPath ".env" }
 if (-not (Test-Path -LiteralPath $dmsEnvFile -PathType Leaf)) {
     throw "DMS stack env file not found: $dmsEnvFile. Start the DMS stack first (bootstrap-local-dms.ps1)."
 }
@@ -242,6 +261,24 @@ $encryptionKey = Get-RequiredValue $dmsEnv "CONFIGURATION_SERVICE_DATABASE_ENCRY
 $postgresPassword = if ($DatabaseEngine -eq "postgresql") { Get-RequiredValue $dmsEnv "POSTGRES_PASSWORD" $dmsEnvFile } else { $null }
 if ([string]::IsNullOrWhiteSpace($ServiceEnvExample)) {
     $ServiceEnvExample = if ($DatabaseEngine -eq "mssql") { "dms/.env.dms.5.2.0.mssql.example" } else { "dms/.env.dms.5.2.0.example" }
+}
+
+$cmsReadOnlyScope = "edfi_admin_api/authMetadata_readonly_access"
+if ($Tenant) {
+    if ($Tenant -notmatch '^[A-Za-z0-9_-]+$') {
+        throw "-Tenant '$Tenant' is not a Configuration Service tenant name (letters, digits, hyphens, underscores)."
+    }
+    if ((Get-RequiredValue $dmsEnv "CONFIGURATION_SERVICE_MULTI_TENANCY" $dmsEnvFile) -ne "true") {
+        throw "-Tenant needs a multi-tenant DMS stack: CONFIGURATION_SERVICE_MULTI_TENANCY is not true in $dmsEnvFile."
+    }
+    # The service reads /v3/tenants, so it needs readonly_access: use the DMS stack's own client
+    $cmsReadOnlyScope = "edfi_admin_api/readonly_access"
+    if (-not $PSBoundParameters.ContainsKey("CmsReadOnlyClientId")) {
+        $CmsReadOnlyClientId = Get-RequiredValue $dmsEnv "DMS_CONFIGURATION_SERVICE_CLIENT_ID" $dmsEnvFile
+        if ([string]::IsNullOrWhiteSpace($CmsReadOnlyClientSecret)) {
+            $CmsReadOnlyClientSecret = Get-RequiredValue $dmsEnv "DMS_CONFIGURATION_SERVICE_CLIENT_SECRET" $dmsEnvFile
+        }
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($CmsReadOnlyClientSecret)) {
@@ -265,7 +302,7 @@ $serviceEnvExample = Resolve-StackPath $ServiceEnvExample
 
 $script:adminToken = Get-CmsToken -ClientId $adminClientId -ClientSecret $adminClientSecret -Scope "edfi_admin_api/full_access"
 # Fail now, not at service startup, if the read-only client the service uses doesn't work
-Get-CmsToken -ClientId $CmsReadOnlyClientId -ClientSecret $CmsReadOnlyClientSecret -Scope "edfi_admin_api/authMetadata_readonly_access" | Out-Null
+Get-CmsToken -ClientId $CmsReadOnlyClientId -ClientSecret $CmsReadOnlyClientSecret -Scope $cmsReadOnlyScope | Out-Null
 
 $dataStores = @(Invoke-Cms -Path "/v3/dataStores")
 if ($DataStoreId -eq 0) {
@@ -282,7 +319,20 @@ $createdClaimSets = @()
 $existingClaimSets = @(Invoke-Cms -Path "/v3/claimSets" | ForEach-Object { $_.claimSetName })
 foreach ($claimSet in @($readOnlyClaimSet, $coreClaimSet)) {
     if ($existingClaimSets -notcontains $claimSet) {
-        Invoke-Cms -Method Post -Path "/v3/claimSets" -Body @{ claimSetName = $claimSet } | Out-Null
+        try {
+            Invoke-Cms -Method Post -Path "/v3/claimSets" -Body @{ claimSetName = $claimSet } | Out-Null
+        }
+        catch {
+            # Claim set names are unique across tenants, but a tenant lists only its own claim sets
+            # and the system-reserved ones. The Configuration Service doesn't check an
+            # application's claim set name, and the token carries the name, which is all the
+            # OneRoster service maps; so the applications below use the other tenant's claim set.
+            if (-not $Tenant -or "$_" -notmatch "already exists") { throw }
+            Write-Warning ("Claim set $claimSet belongs to another tenant; tenant $Tenant's applications use it by name. " +
+                "This relies on the Configuration Service not checking claim set names. In a real multi-tenant " +
+                "deployment, register the OneRoster claim sets as system-reserved (a claims fragment), which every tenant shares.")
+            continue
+        }
         $createdClaimSets += $claimSet
         Write-Host "Created claim set $claimSet"
     }
@@ -376,14 +426,19 @@ foreach ($app in $applications) {
 
 # --- Env files ---------------------------------------------------------------------------------
 
+# A multi-tenant DMS and OneRoster service take the tenant as the first path segment
+$routePrefix = if ($Tenant) { "/$Tenant" } else { "" }
 $clientLines = @(
     "# OneRoster on the local DMS stack. Written by stack/setup-dms-clients.ps1. Holds secrets: never commit or share.",
-    (Format-EnvValue "DMS_API_URL" $DmsUrl),
-    (Format-EnvValue "DMS_TOKEN_URL" "$DmsUrl/oauth/token"),
-    (Format-EnvValue "DMS_ONEROSTER_URL" $OneRosterUrl),
+    (Format-EnvValue "DMS_API_URL" "$DmsUrl$routePrefix"),
+    (Format-EnvValue "DMS_TOKEN_URL" "$DmsUrl$routePrefix/oauth/token"),
+    (Format-EnvValue "DMS_ONEROSTER_URL" "$OneRosterUrl$routePrefix"),
     (Format-EnvValue "CMS_URL" $CmsUrl),
     (Format-EnvValue "DMS_DATA_STORE_ID" "$DataStoreId")
 )
+if ($Tenant) {
+    $clientLines += Format-EnvValue "DMS_TENANT" $Tenant
+}
 foreach ($entry in $credentials.GetEnumerator()) {
     $clientLines += Format-EnvValue $entry.Key $entry.Value
 }
@@ -393,12 +448,24 @@ Write-Host "Wrote $clientsFile"
 
 if ((Test-Path -LiteralPath $serviceEnvFile) -and -not $Force) {
     Write-Host "Kept $serviceEnvFile (rerun with -Force to rewrite it from $ServiceEnvExample)"
+    $keptMultiTenant = (ReadValuesFromEnvFile -EnvironmentFile $serviceEnvFile)["MULTITENANCY_ENABLED"] -eq "true"
+    if ([bool]$Tenant -ne $keptMultiTenant) {
+        Write-Warning ("$serviceEnvFile has MULTITENANCY_ENABLED=$($keptMultiTenant.ToString().ToLower()), which doesn't fit " +
+            "$(if ($Tenant) { '-Tenant' } else { 'a run without -Tenant' }). Give each kind of stack its own -EnvFile, or rerun with -Force.")
+    }
 }
 else {
     $text = Get-Content -LiteralPath $serviceEnvExample -Raw
     $text = $text.Replace("CONFIG_SERVICE_CLIENT_ID=CMSAuthMetadataReadOnlyAccess", (Format-EnvValue "CONFIG_SERVICE_CLIENT_ID" $CmsReadOnlyClientId))
     $text = $text.Replace("CONFIG_SERVICE_CLIENT_SECRET=<CMS read-only client secret>", (Format-EnvValue "CONFIG_SERVICE_CLIENT_SECRET" $CmsReadOnlyClientSecret))
     $text = $text.Replace("CONFIG_SERVICE_ENCRYPTION_KEY=<CONFIGURATION_SERVICE_DATABASE_ENCRYPTION_KEY from the DMS stack>", (Format-EnvValue "CONFIG_SERVICE_ENCRYPTION_KEY" $encryptionKey))
+    if ($Tenant) {
+        $text = $text.Replace("MULTITENANCY_ENABLED=false", "MULTITENANCY_ENABLED=true")
+        $text = $text.Replace("CONFIG_SERVICE_URL=http://config:8081", "CONFIG_SERVICE_URL=http://config:8081`nCONFIG_SERVICE_SCOPE=$cmsReadOnlyScope")
+        if (-not $text.Contains("MULTITENANCY_ENABLED=true") -or -not $text.Contains("CONFIG_SERVICE_SCOPE=")) {
+            throw "$ServiceEnvExample doesn't have the MULTITENANCY_ENABLED and CONFIG_SERVICE_URL lines -Tenant changes."
+        }
+    }
     if ($postgresPassword) {
         if ($postgresPassword.Contains('"') -or $postgresPassword.Contains(';') -or $postgresPassword.Contains("'")) {
             throw "POSTGRES_PASSWORD contains a character that can't go into PG_BOSS_CONNECTION_CONFIG unescaped."

@@ -67,8 +67,9 @@ export function createDmsDataStoreMiddleware({ provider, multiTenancyEnabled, ro
 
     try {
       if (multiTenancyEnabled) {
-        tenantId = req.params?.tenantId || null;
-        if (!tenantId || !(await provider.isTenant(tenantId))) {
+        // The Configuration Service's spelling, so a route in another case reuses the same pool
+        tenantId = await provider.resolveTenant(req.params?.tenantId || null);
+        if (!tenantId) {
           logger.warn('Unknown or missing tenant in route');
           return failure(res, 404, 'The requested resource was not found.');
         }
