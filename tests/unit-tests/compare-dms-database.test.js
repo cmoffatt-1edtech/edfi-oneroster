@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, test, expect } from '@jest/globals';
-import { compareRows, unexplainedCount, compareValues } from '../compare-dms-database.js';
+import { compareRows, unexplainedCount, compareValues, PERSON_KEY_COLUMNS } from '../compare-dms-database.js';
 
 const org = (sourcedId, extra = {}) => ({ sourcedId, name: `Org ${sourcedId}`, educationOrganizationId: 1, ...extra });
 
@@ -16,6 +16,16 @@ describe('compareRows / unexplainedCount', () => {
     );
     expect(result.identical).toBe(1);
     expect(unexplainedCount(result)).toBe(0);
+  });
+
+  test('dateLastModified is compared when the caller narrows the ignored columns', () => {
+    const result = compareRows(
+      [org('a', { dateLastModified: 1, participantUSI: 7 })],
+      [org('a', { dateLastModified: 2, participantDocumentId: 9 })],
+      { ignored: PERSON_KEY_COLUMNS }
+    );
+    expect(result.columnDiffs).toEqual({ dateLastModified: 1 });
+    expect(unexplainedCount(result)).toBe(1);
   });
 
   test('a sourcedId repeated on DMS fails, though every value matches', () => {

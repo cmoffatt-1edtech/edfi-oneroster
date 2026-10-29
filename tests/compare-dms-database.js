@@ -36,7 +36,7 @@ import { parseConnectionString } from '../src/config/multi-tenancy-config.js';
 import { buildPostgresClientOptions } from '../src/config/db-connection.js';
 
 const VIEWS = ['orgs', 'academicsessions', 'courses', 'classes', 'users', 'enrollments', 'demographics'];
-const PERSON_KEY_COLUMNS = new Set(['participantUSI', 'studentUSI', 'participantDocumentId', 'studentDocumentId']);
+export const PERSON_KEY_COLUMNS = new Set(['participantUSI', 'studentUSI', 'participantDocumentId', 'studentDocumentId']);
 const IGNORED_COLUMNS = new Set(['dateLastModified', ...PERSON_KEY_COLUMNS]);
 const DEFAULT_EXCLUDED_EDORGS = ['5', '6', '7'];
 
@@ -97,8 +97,10 @@ function rowColumns(rows) {
  * @param {Object} [options]
  * @param {{ods: string[], dms: string[]}} [options.columns] - Column names from the catalog. Without
  *   them the columns found in the rows are used, which says nothing about an empty view.
+ * @param {Set<string>} [options.ignored] - Columns not compared; dateLastModified and the person keys
+ *   by default.
  */
-export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5, columns: catalogColumns = null } = {}) {
+export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5, columns: catalogColumns = null, ignored = IGNORED_COLUMNS } = {}) {
   const excludedSet = new Set(excluded.map(String));
   const kept = odsRows.filter(row => !excludedSet.has(String(row.educationOrganizationId)));
   const ods = new Map(kept.map(row => [row.sourcedId, row]));
@@ -106,7 +108,7 @@ export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5, colu
 
   const odsColumns = catalogColumns?.ods ?? rowColumns(odsRows);
   const dmsColumns = catalogColumns?.dms ?? rowColumns(dmsRows);
-  const columns = odsColumns.filter(column => dmsColumns.includes(column) && !IGNORED_COLUMNS.has(column));
+  const columns = odsColumns.filter(column => dmsColumns.includes(column) && !ignored.has(column));
   const duplicates = { ods: duplicateIds(kept), dms: duplicateIds(dmsRows) };
 
   const result = {
@@ -115,8 +117,8 @@ export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5, colu
     dmsRows: dmsRows.length,
     duplicateSourcedIds: { ods: kept.length - ods.size, dms: dmsRows.length - dms.size },
     duplicateIds: { ods: duplicates.ods.slice(0, samples), dms: duplicates.dms.slice(0, samples) },
-    columnsOnlyOds: odsColumns.filter(c => !dmsColumns.includes(c) && !IGNORED_COLUMNS.has(c)),
-    columnsOnlyDms: dmsColumns.filter(c => !odsColumns.includes(c) && !IGNORED_COLUMNS.has(c)),
+    columnsOnlyOds: odsColumns.filter(c => !dmsColumns.includes(c) && !ignored.has(c)),
+    columnsOnlyDms: dmsColumns.filter(c => !odsColumns.includes(c) && !ignored.has(c)),
     onlyOds: [...ods.keys()].filter(id => !dms.has(id)),
     onlyDms: [...dms.keys()].filter(id => !ods.has(id)),
     matched: 0,
@@ -161,7 +163,7 @@ export function unexplainedCount(result) {
     result.columnsOnlyOds.length + result.columnsOnlyDms.length + (result.typeDiffs?.length || 0);
 }
 
-async function connect(connectionString) {
+export async function connect(connectionString) {
   const client = new pg.Client(buildPostgresClientOptions(parseConnectionString(connectionString, 'postgres')));
   await client.connect();
   return client;

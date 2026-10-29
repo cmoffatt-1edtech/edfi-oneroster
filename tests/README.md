@@ -313,6 +313,19 @@ This compares the seven `oneroster12` views row by row in a throwaway container
 on both stacks' networks. Expected: `PARITY: 0 row/type difference(s)`. Method and
 results: [docs/design/dms-parity-report.md](../docs/design/dms-parity-report.md).
 
+### Synthetic fixture parity
+
+```bash
+ODS_PG="..." DMS_PG="..." tests/compare-dms-fixture.sh
+```
+
+Grand Bend leaves many branches of the views unexercised. This loads the synthetic data in
+`tests/dms-parity-fixture.js` into both databases, runs each view's SQL on the result, compares
+the fixture's rows across platforms, checks them against the expected values in the fixture, and
+rolls both databases back. It needs the same superuser settings as the database parity check,
+and it doesn't refresh or lock the materialized views. Expected: `FIXTURE PARITY: 0 problem(s)`
+and `56/56` expectations on each platform.
+
 ## Development Scripts
 
 ### Deployment Script

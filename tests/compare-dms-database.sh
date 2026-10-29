@@ -10,6 +10,7 @@
 #   DMS_PG="host=dms-postgresql;port=5432;username=postgres;password=...;database=edfi_datamanagementservice" \
 #   tests/compare-dms-database.sh [--views users] [--json /app/out.json]
 # Networks default to edfioneroster-network and dms (ODS_NETWORK / DMS_NETWORK override them).
+# COMPARE_SCRIPT runs another script the same way (tests/compare-dms-fixture.sh uses it).
 set -euo pipefail
 : "${ODS_PG:?set ODS_PG}" "${DMS_PG:?set DMS_PG}"
 
@@ -21,7 +22,7 @@ mkdir -p "$OUT_DIR"
 
 docker create --name "$NAME" --network "${ODS_NETWORK:-edfioneroster-network}" \
   -v "$REPO":/app:ro -v "$OUT_DIR":/out -w /app -e ODS_PG -e DMS_PG \
-  "$IMAGE" node tests/compare-dms-database.js "$@" >/dev/null
+  "$IMAGE" node "${COMPARE_SCRIPT:-tests/compare-dms-database.js}" "$@" >/dev/null
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 docker network connect "${DMS_NETWORK:-dms}" "$NAME"
 docker start -a "$NAME"

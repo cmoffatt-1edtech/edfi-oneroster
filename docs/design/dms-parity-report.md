@@ -56,14 +56,93 @@ logic for each, but no data reaches them:
   separately and matches); ranking ties.
 - **enrollments / demographics:** non-`Teacher of Record` positions (all 528 staff rows are
   Teacher of Record); more than one mapped race; more than one SEOA or school per student; birth
-  country, state and city (all null); birth sex is set for only 3 students. A read-only fixture run
-  of the DMS view bodies with inline test rows (not committed) gave the results for teacher
-  `primary`, the `STA-` key, multi-school demographics, race union, ethnicity and sex mapping.
+  country, state and city (all null); birth sex is set for only 3 students.
 - **courses / academicsessions / classes:** LEA- and state-owned courses (#157); offerings in
   more than one school year; more than one calendar; classes with several periods (only 1).
 
-A synthetic fixture loaded on both platforms would close this gap; it's listed as follow-up work.
-The inline fixture run above wasn't committed, so it guards nothing against regressions.
+The synthetic fixture below now covers these branches on both platforms, except staff
+primary-org ties (see its limits).
+
+## Synthetic fixture
+
+**Run:** 2026-10-29. **Tool:** `tests/compare-dms-fixture.sh` (`tests/compare-dms-fixture.js`,
+data in `tests/dms-parity-fixture.js`). Same two databases as above.
+
+The fixture describes its data once, by natural key: a state agency, two LEAs (one without a state
+agency), three schools (one without an LEA), calendars, sessions, courses, sections, 5 students,
+5 staff and 4 contacts. It uses its own ed-org ids (9900, 9900xx, 9900xxxxx) and unique ids
+(`FX-...`), so it doesn't touch Grand Bend rows. Two writers turn it into rows for each platform's
+tables: 141 ODS rows and 135 DMS rows (the ODS also has the `educationorganization` base table).
+Descriptors are looked up by URI. The 28 in the `uri://ed-fi.org` namespace exist on both
+platforms; the 5 in the fixture's own namespace, which no mapping uses, are added for the run.
+
+On each database, in one REPEATABLE READ transaction that is rolled back:
+
+1. `session_replication_role = replica`, so triggers and foreign keys don't fire. Check, unique
+   and not-null constraints still apply, including the DMS all-or-none reference checks, and the
+   loader refuses generated columns.
+2. Each projection's definition (`pg_get_viewdef` of the materialized view) runs before the load
+   and after it. The materialized views aren't refreshed, so nothing waits on them.
+3. The rows the load adds are compared, ODS against DMS, with the database tool's rules, and with
+   `dateLastModified` compared too, since the fixture sets both platforms' timestamps. A
+   projection row that the load changes or removes fails the run.
+4. Columns with a sequence default get explicit values, and `pg_sequences` is compared before and
+   after. After the rollback the run checks that no fixture student remains.
+
+Both platforms are also checked against 56 expected values and row counts (`EXPECTATIONS` in the
+fixture, written from the ODS SQL). So a fixture that stops reaching a branch fails, even when
+both sides still agree.
+
+### Result: parity, and every expectation met on both platforms
+
+| View | Fixture rows (ODS = DMS) | Identical | Order-only |
+| --- | ---: | ---: | --- |
+| orgs | 6 | 6 | `children` of the fixture LEA |
+| academicsessions | 8 | 8 | |
+| courses | 5 | 5 | |
+| classes | 5 | 5 | |
+| users | 19 | 19 | `roles` of 6 people at two schools |
+| enrollments | 9 | 9 | |
+| demographics | 8 | 8 | |
+
+Expectations: 56 of 56 on the ODS and 56 of 56 on DMS. No existing projection row changed, no
+sequence moved and no fixture rows remained, on either database. A run takes about 2 seconds.
+
+### What it covers
+
+| Branch | Fixture case |
+| --- | --- |
+| Student at two schools | Primary by latest entry; primary flag beats a later entry; same entry date (lower `schoolId` primary, higher grade code wins); re-enrolment at one school (one row, one role, latest grade) |
+| Student e-mail | Suppressed preferred address falls through to the next; only address suppressed (empty `username`); `Home/Personal` preferred over `Other`; address from an SEOA at a school the student isn't enrolled at |
+| Student ids | School-level codes reach that school's row only, ordered by system; LEA-level codes never reach `userIds` |
+| Staff at two schools | Latest association primary; school-level classification wins at its school and LEA-level elsewhere; role takes the lowest mapped value |
+| Unmapped staff classification | Teaching staff → `teacher`, roles carry a null role; not teaching → null role |
+| Staff e-mail | Suppressed `Work` falls through; `Work` from a staff contact association preferred; invalid address still used; ed-org contact only |
+| Contacts | Two students at two schools (tie on latest entry → lower `schoolId`); first primary, publishable address by address; null indicators exclude an address; no students; a student with no school |
+| Enrollments | Teacher of Record (`true`), Substitute Teacher (`false`), unmapped position (`false`), end dates, mixed-case keys |
+| Demographics | Races across two SEOAs (two or more races), duplicate race, unmapped race, `bool_or` ethnicity with null, mapped and unmapped sex, birth country, state and city, `dateLastModified` from the latest SEOA, a student with no school |
+| Courses | Owned by an LEA (offerings in two years → latest), a school, the state agency (no school year), an LEA with no offerings, a school without an LEA; same code under two orgs |
+| Academic sessions | Two calendars in one school; a date with an instructional and a holiday event; modal first and last day with a tie; two school years; a year with calendar dates but no LEA; an unmapped term (no session row, but it sets the school year's `dateLastModified`) |
+| Classes | Two class periods (sorted), a location, an offering without a title (`''`), mixed-case course code, section and session |
+
+### Checks on the check
+
+A run with four deliberate breaks failed as it should:
+
+- a DMS-only change to one student's e-mail (2 `users` differences, DMS expectations failed);
+- an ODS-only change to one session's timestamp (an `academicsessions` `dateLastModified`
+  difference);
+- one staff assignment removed on both platforms (parity held, expectations failed on both);
+- a school added under the Grand Bend LEA (1 changed existing row reported on each platform).
+
+### Limits
+
+- The rows are written straight to the tables with triggers and foreign keys off, so the run tests
+  the projections, not how each API stores a resource. The DMS rows do satisfy DMS's own check
+  constraints and generated key columns.
+- Ties in staff primary-org ranking aren't compared: the ODS ranks by `createdate` and DMS by
+  `"DocumentId"` (decision 9). The fixture gives each association a distinct order on both.
+- PostgreSQL and Data Standard 5.2 only. SQL Server and DS 6.1 are phase 5.
 
 ## Inherited from the ODS artifacts (kept for parity)
 
