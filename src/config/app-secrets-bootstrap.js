@@ -24,8 +24,12 @@ const DMS_SECRETS = Object.freeze({
  * PLATFORM=dms: any of the Configuration Service client secret, the connection-string encryption
  * key, static data stores (DATA_STORES) and the pg-boss config; at least one. Startup validation
  * then checks that the combination is complete, as it does for the environment.
+ *
+ * @param {Object} [options]
+ * @param {boolean} [options.dms] - Load the PLATFORM=dms secrets; PLATFORM decides by default.
+ *   standard/deploy-dms.js passes true, since it only serves DMS.
  */
-export async function bootstrapAppSecretsIfNeeded() {
+export async function bootstrapAppSecretsIfNeeded({ dms = isDmsPlatform() } = {}) {
   const modulePath = (process.env.APP_SECRETS_MODULE || '').trim();
   if (!modulePath) {
     return;
@@ -38,7 +42,7 @@ export async function bootstrapAppSecretsIfNeeded() {
   }
 
   const secrets = await mod.loadAppSecrets();
-  const assigned = isDmsPlatform() ? assignDmsSecrets(secrets) : assignOdsSecrets(secrets);
+  const assigned = dms ? assignDmsSecrets(secrets) : assignOdsSecrets(secrets);
   assignPgBoss(secrets);
 
   logger.info(`Loaded via plugin${assigned.length ? `: ${assigned.join(', ')}` : ''}`);

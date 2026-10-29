@@ -13,7 +13,7 @@ import { VALID_LEVELS as VALID_LOG_LEVELS, getLogger } from './logger.js';
 import { isSwaggerUiEnabled, isOpenApiMetadataEnabled } from '../config/api-docs.js';
 import { parsePlatform, PLATFORMS } from '../config/platform.js';
 import { parseRouteQualifierSegments } from '../config/route-context-config.js';
-import { dmsTransportWarnings, validateDmsSettings } from '../config/dms-config.js';
+import { dmsScopeWarnings, dmsTransportWarnings, validateDmsSettings } from '../config/dms-config.js';
 
 const logger = getLogger('EnvValidator');
 
@@ -266,6 +266,7 @@ export function validateAndExit() {
 
   if (parsePlatform(process.env.PLATFORM) === PLATFORMS.DMS) {
     for (const warning of dmsTransportWarnings(process.env)) logger.warn(warning);
+    for (const warning of dmsScopeWarnings(process.env, process.env.MULTITENANCY_ENABLED === 'true')) logger.warn(warning);
   }
 
   if (process.env.MAX_PAGE_SIZE) {

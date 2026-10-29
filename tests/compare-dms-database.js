@@ -9,14 +9,16 @@
  * projection on a DMS data store loaded with the same data.
  *
  * Rows are matched on sourcedId and compared column by column, strictly (a number and a string
- * holding the same digits differ, because the API would serialize them differently). Ignored:
- * dateLastModified (load times differ) and the platform person keys (participantUSI/studentUSI on
- * the ODS, participantDocumentId/studentDocumentId on DMS). Arrays that hold the same elements in
- * another order are reported separately as order-only differences.
+ * holding the same digits differ, because the API would serialize them differently). Values not
+ * compared: dateLastModified (load times differ) and the platform person keys (participantUSI/
+ * studentUSI on the ODS, participantDocumentId/studentDocumentId on DMS). Arrays that hold the same
+ * elements in another order are reported separately as order-only differences.
  *
  * The schemas are compared from the catalog, so an empty view is still checked: a column on one
- * side only, or with another type, is a difference. So is a sourcedId that appears more than once
- * on either side, which matching by sourcedId would otherwise hide.
+ * side only, or with another type, is a difference. Only the person keys are left out of that
+ * check, since each platform has its own; dateLastModified must exist on both sides. A sourcedId
+ * that appears more than once on either side is also a difference, which matching by sourcedId
+ * would otherwise hide.
  *
  * ODS rows of excluded education organizations (default 5,6,7: the TPDM sample schools the ODS
  * sandbox carries and the DMS Populated template does not) are dropped before comparing.
@@ -97,10 +99,14 @@ function rowColumns(rows) {
  * @param {Object} [options]
  * @param {{ods: string[], dms: string[]}} [options.columns] - Column names from the catalog. Without
  *   them the columns found in the rows are used, which says nothing about an empty view.
- * @param {Set<string>} [options.ignored] - Columns not compared; dateLastModified and the person keys
- *   by default.
+ * @param {Set<string>} [options.ignored] - Columns whose values are not compared; dateLastModified
+ *   and the person keys by default.
+ * @param {Set<string>} [options.schemaIgnored] - Columns that may exist on one side only; the person
+ *   keys by default.
  */
-export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5, columns: catalogColumns = null, ignored = IGNORED_COLUMNS } = {}) {
+export function compareRows(odsRows, dmsRows, {
+  excluded = [], samples = 5, columns: catalogColumns = null, ignored = IGNORED_COLUMNS, schemaIgnored = PERSON_KEY_COLUMNS
+} = {}) {
   const excludedSet = new Set(excluded.map(String));
   const kept = odsRows.filter(row => !excludedSet.has(String(row.educationOrganizationId)));
   const ods = new Map(kept.map(row => [row.sourcedId, row]));
@@ -117,8 +123,8 @@ export function compareRows(odsRows, dmsRows, { excluded = [], samples = 5, colu
     dmsRows: dmsRows.length,
     duplicateSourcedIds: { ods: kept.length - ods.size, dms: dmsRows.length - dms.size },
     duplicateIds: { ods: duplicates.ods.slice(0, samples), dms: duplicates.dms.slice(0, samples) },
-    columnsOnlyOds: odsColumns.filter(c => !dmsColumns.includes(c) && !ignored.has(c)),
-    columnsOnlyDms: dmsColumns.filter(c => !odsColumns.includes(c) && !ignored.has(c)),
+    columnsOnlyOds: odsColumns.filter(c => !dmsColumns.includes(c) && !schemaIgnored.has(c)),
+    columnsOnlyDms: dmsColumns.filter(c => !odsColumns.includes(c) && !schemaIgnored.has(c)),
     onlyOds: [...ods.keys()].filter(id => !dms.has(id)),
     onlyDms: [...dms.keys()].filter(id => !ods.has(id)),
     matched: 0,

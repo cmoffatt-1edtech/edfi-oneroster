@@ -17,6 +17,8 @@ const SCOPE_PREFIX = 'https://purl.imsglobal.org/spec/or/v1p2/scope/';
 
 // Outbound calls to the Configuration Service and the token issuer (DMS_HTTP_TIMEOUT_MS)
 export const DEFAULT_DMS_HTTP_TIMEOUT_MS = 10_000;
+// CONFIG_SERVICE_SCOPE default: reads data stores and API clients, not tenants
+export const DEFAULT_CONFIG_SERVICE_SCOPE = 'edfi_admin_api/authMetadata_readonly_access';
 const KNOWN_SCOPES = ['roster.readonly', 'roster-core.readonly', 'roster-demographics.readonly'].map(s => SCOPE_PREFIX + s);
 
 function trimmed(name, env) {
@@ -166,6 +168,24 @@ export function dmsTransportWarnings(env) {
     }
   }
   return warnings;
+}
+
+/**
+ * Startup warning for a multi-tenant deployment whose Configuration Service client has the default
+ * scope: CMS serves /v3/tenants only to edfi_admin_api/readonly_access or admin, so the health check
+ * and the tenant check answer 403.
+ * @param {Object} env
+ * @param {boolean} multiTenancyEnabled
+ * @returns {string[]} warnings
+ */
+export function dmsScopeWarnings(env, multiTenancyEnabled) {
+  const scope = trimmed('CONFIG_SERVICE_SCOPE', env) || DEFAULT_CONFIG_SERVICE_SCOPE;
+  if (!multiTenancyEnabled || trimmed('DATA_STORES', env) || scope !== DEFAULT_CONFIG_SERVICE_SCOPE) {
+    return [];
+  }
+  return [`CONFIG_SERVICE_SCOPE is ${DEFAULT_CONFIG_SERVICE_SCOPE}, which can't read /v3/tenants: with ` +
+    'MULTITENANCY_ENABLED, the health check and tenant checks fail with 403. Give the client ' +
+    'edfi_admin_api/readonly_access.'];
 }
 
 /**

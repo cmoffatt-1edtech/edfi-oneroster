@@ -246,3 +246,12 @@ no order-only arrays); `compare-api.js ods-vs-dms` against the live ODS DS 6.1 s
 0 differences; `dms-vs-recording` against the PostgreSQL DS 6.1 recording, 150 requests, 0
 differences; Bruno 67 requests 264/264 and 14 requests 20/20.
 
+**Cross-engine comparison as a command (second review, 2026-10-29).** The SQL Server table
+comparisons above used a scratch script; `tests/compare-dms-engines.js` now does it. It saves the
+PostgreSQL projections (`--save-pg`), since the local stacks run one engine at a time, and compares
+SQL Server with them (`--pg-snapshot`), or with a live PostgreSQL data store. Values are normalized
+across the two drivers. Load times and DocumentIds are not compared, but every column must exist on
+both sides. Rerun on the kept SQL Server DS 6.1 store against the PostgreSQL DS 6.1 views saved in
+phase 5: 7/7 identical, the same counts as above. A changed title and a dropped column in the saved
+side both failed it (exit 1). Saving the running PostgreSQL DS 5.2 views reproduced the phase 5
+capture row for row.

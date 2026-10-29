@@ -24,8 +24,9 @@
  *    resource; their versions are DMS's "ContentVersion" and, for deletes, the "ChangeVersion" of
  *    tracked_changes_<schema>.<resource>, both from dms."ChangeVersionSequence".
  *
- * DMS provisioning drops and recreates a data store's database when its schema changes, which
- * removes oneroster12: rerun this script after every `ddl provision`.
+ * DMS provisioning is create-only: a data store moves to another effective schema (a data standard,
+ * extension or DMS upgrade) only in a new database, dropped and provisioned again, which removes
+ * oneroster12. Rerun this script after every provision.
  *
  * Usage:
  *   node standard/deploy-dms.js --connection "host=...;port=5432;username=...;password=...;database=..."
@@ -46,7 +47,8 @@
  *   node standard/deploy-dms.js --from-cms [--data-store <id>] [--tenant <name>]
  *     Deploys to every data store the Configuration Service lists (or the one given), using
  *     CONFIG_SERVICE_URL, CONFIG_SERVICE_CLIENT_ID/_SECRET and CONFIG_SERVICE_ENCRYPTION_KEY, as the
- *     service does. CMS connection strings name hosts on the DMS network, so run it there.
+ *     service does, including the secrets plugin (APP_SECRETS_MODULE, loaded as PLATFORM=dms). CMS
+ *     connection strings name hosts on the DMS network, so run it there.
  *   Statements run without a timeout unless DB_REQUEST_TIMEOUT is set.
  *
  * SQL Server: the refresh job ("OneRoster 1.2 Refresh (<database>)", daily at 02:00 like the ODS
@@ -65,6 +67,7 @@ import { buildRequestTimeoutOptions } from '../src/config/db-timeouts.js';
 import { buildMssqlTlsOptions } from '../src/config/mssql-tls.js';
 import { listArtifactFiles, listOrchestrationFiles, nameMapFileName, PLACEHOLDER_PATTERN } from './dms/build-name-map.js';
 import { getDmsDataStoreSettings } from '../src/config/dms-config.js';
+import { bootstrapAppSecretsIfNeeded } from '../src/config/app-secrets-bootstrap.js';
 import { ConfigurationServiceClient } from '../src/platform/dms/configuration-service-client.js';
 import { createConfigurationServiceDataStoreProvider } from '../src/platform/dms/data-store-providers.js';
 
@@ -471,6 +474,8 @@ async function ensureJobsDatabase(session, name) {
 
 /** Connection strings for the data stores the Configuration Service lists. */
 async function dataStoreConnections(args) {
+  // The client secret and encryption key may come from the service's secrets plugin
+  await bootstrapAppSecretsIfNeeded({ dms: true });
   const settings = getDmsDataStoreSettings();
   const provider = createConfigurationServiceDataStoreProvider({
     client: new ConfigurationServiceClient({

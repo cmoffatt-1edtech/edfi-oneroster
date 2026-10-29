@@ -28,7 +28,8 @@ function selectionServer(baseUrl, label, values) {
  * Ed-Fi API v8 (DMS): the route prefixes requests can use. Each is the tenant (multi-tenant) followed
  * by the values of ROUTE_QUALIFIER_SEGMENTS, in order, of a data store whose contexts have exactly
  * those keys (as dmsDataStoreMiddleware matches them). Data stores without a full set of qualifier
- * values can't be routed to and are left out.
+ * values can't be routed to and are left out. Each segment is percent-encoded, since a context value
+ * may hold "/", "?" or "#"; Express decodes it again into the route parameter.
  *
  * @param {string} baseUrl
  * @param {Object} options
@@ -46,14 +47,14 @@ export async function buildDmsSwaggerServers(baseUrl, { provider, multiTenancyEn
     const prefixes = new Set();
     for (const tenant of tenants) {
       if (qualifierNames.length === 0) {
-        prefixes.add(tenant);
+        prefixes.add(encodeURIComponent(tenant));
         continue;
       }
       for (const dataStore of await provider.listDataStores(tenant)) {
         const contexts = new Map(Object.entries(dataStore.contexts || {}).map(([key, value]) => [key.toLowerCase(), String(value)]));
         const values = qualifierNames.map(name => contexts.get(name.toLowerCase()));
         if (contexts.size === qualifierNames.length && values.every(value => value !== undefined && value !== '')) {
-          prefixes.add([tenant, ...values].filter(part => part !== null).join('/'));
+          prefixes.add([tenant, ...values].filter(part => part !== null).map(encodeURIComponent).join('/'));
         }
       }
     }

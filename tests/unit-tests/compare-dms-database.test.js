@@ -50,6 +50,24 @@ describe('compareRows / unexplainedCount', () => {
     expect(result.columnsOnlyOds).toEqual(['title']);
   });
 
+  // dateLastModified values are not compared, but the column must exist on both sides
+  test('a missing dateLastModified fails, in a populated view and an empty one', () => {
+    const populated = compareRows([org('a', { dateLastModified: 1 })], [org('a')]);
+    expect(populated.columnsOnlyOds).toEqual(['dateLastModified']);
+    expect(unexplainedCount(populated)).toBe(1);
+
+    const empty = compareRows([], [], { columns: { ods: ['sourcedId'], dms: ['sourcedId', 'dateLastModified'] } });
+    expect(empty.columnsOnlyDms).toEqual(['dateLastModified']);
+    expect(unexplainedCount(empty)).toBe(1);
+  });
+
+  test('the platform person keys may exist on one side only', () => {
+    const result = compareRows([], [], {
+      columns: { ods: ['sourcedId', 'participantUSI', 'studentUSI'], dms: ['sourcedId', 'participantDocumentId', 'studentDocumentId'] }
+    });
+    expect(unexplainedCount(result)).toBe(0);
+  });
+
   test('catalog columns check the schema of empty views', () => {
     const result = compareRows([], [], { columns: { ods: ['sourcedId', 'title'], dms: ['sourcedId', 'extra'] } });
     expect(result.columnsOnlyOds).toEqual(['title']);

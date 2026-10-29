@@ -18,21 +18,22 @@ const refreshInstanceKey = (cacheKey, odsInstanceId) => `${odsInstanceKey(cacheK
 class DatabaseServiceFactory {
   constructor() {
     this.services = new Map();
-    this.connectionVersions = new Map(); // serviceKey -> connection version it was built with (DMS)
+    this.connectionVersions = new Map(); // serviceKey -> connection version its pools were built with (DMS)
   }
 
   /**
    * Create OneRoster query service for database type
    * Requires OdsInstanceId to resolve correct ODS database
    * @param {string|null} [connectionVersion] - DMS: digest of the data store's connection strings
-   *   (src/platform/dms/data-store-providers.js). A cached service built from another version is
-   *   replaced, so a connection changed in the Configuration Service reaches the running service.
+   *   (src/platform/dms/data-store-providers.js). Pools built from another version are retired, with
+   *   their service if one was built, so a connection changed in the Configuration Service reaches the
+   *   running service. That includes pools whose connection check failed, which have no service.
    */
   async createServiceForType(dbType, schema = 'oneroster12', tenantId = null, odsInstanceId = null, cacheKey = null, connectionVersion = null) {
     // Use provided cache key or build default service key
     const serviceKey = cacheKey || `${dbType}_${tenantId || 'default'}_${odsInstanceId || 'default'}_${schema}`;
 
-    if (connectionVersion && this.services.has(serviceKey) && this.connectionVersions.get(serviceKey) !== connectionVersion) {
+    if (connectionVersion && this.connectionVersions.has(serviceKey) && this.connectionVersions.get(serviceKey) !== connectionVersion) {
       this.retireService(serviceKey, cacheKey, odsInstanceId);
     }
 
@@ -65,6 +66,10 @@ class DatabaseServiceFactory {
           if (refreshConnectionString) {
             knexManager.createOdsInstance(dbType, refreshConnectionString, odsInstanceId, refreshInstanceKey(cacheKey, odsInstanceId));
           }
+          // Recorded before the connection check: a pool stays cached when the check fails
+          if (connectionVersion) {
+            this.connectionVersions.set(serviceKey, connectionVersion);
+          }
         } else {
           throw new Error('OdsInstanceId is required to resolve an ODS database connection.');
         }
@@ -84,9 +89,6 @@ class DatabaseServiceFactory {
 
         // Store for reuse
         this.services.set(serviceKey, service);
-        if (connectionVersion) {
-          this.connectionVersions.set(serviceKey, connectionVersion);
-        }
 
         logger.info(`${dbType.toUpperCase()} service created successfully`);
       } catch (error) {

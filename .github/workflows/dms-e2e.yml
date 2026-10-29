@@ -15,8 +15,16 @@ on:
   pull_request:
     branches:
       - main
+    # The service's code, build and dependencies, the seed data and deployment, the stack scripts and
+    # the suites
     paths:
       - 'src/**'
+      - 'server.js'
+      - 'config/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'seedData/**'
       - 'standard/deploy-dms.js'
       - 'standard/seed-descriptors.js'
       - 'standard/dms/**'

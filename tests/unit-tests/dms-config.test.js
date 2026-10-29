@@ -5,7 +5,7 @@
 
 import { describe, test, expect } from '@jest/globals';
 import {
-  DEFAULT_DMS_HTTP_TIMEOUT_MS, dmsTransportWarnings, getDmsDataStoreSettings, getDmsTokenSettings, validateDmsSettings
+  DEFAULT_DMS_HTTP_TIMEOUT_MS, dmsScopeWarnings, dmsTransportWarnings, getDmsDataStoreSettings, getDmsTokenSettings, validateDmsSettings
 } from '../../src/config/dms-config.js';
 
 const BASE = {
@@ -50,5 +50,19 @@ describe('dmsTransportWarnings', () => {
 
   test('ignores CONFIG_SERVICE_URL in static DATA_STORES mode, which does not call it', () => {
     expect(dmsTransportWarnings({ ...BASE, CONFIG_SERVICE_URL: 'http://config:8081', DATA_STORES: '{"1":{"ConnectionString":"host=x"}}' })).toEqual([]);
+  });
+});
+
+describe('dmsScopeWarnings', () => {
+  test('warns only for a multi-tenant Configuration Service client with the default scope', () => {
+    expect(dmsScopeWarnings(BASE, false)).toEqual([]);
+    expect(dmsScopeWarnings({ ...BASE, CONFIG_SERVICE_SCOPE: 'edfi_admin_api/readonly_access' }, true)).toEqual([]);
+    expect(dmsScopeWarnings({ ...BASE, DATA_STORES: '{"1":{"ConnectionString":"host=x"}}' }, true)).toEqual([]);
+
+    const unset = { ...BASE };
+    delete unset.CONFIG_SERVICE_SCOPE;
+    for (const env of [unset, { ...BASE, CONFIG_SERVICE_SCOPE: 'edfi_admin_api/authMetadata_readonly_access' }]) {
+      expect(dmsScopeWarnings(env, true)).toEqual([expect.stringMatching(/can't read \/v3\/tenants/)]);
+    }
   });
 });

@@ -4,11 +4,11 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { getLogger } from '../../utils/logger.js';
-import { DEFAULT_DMS_HTTP_TIMEOUT_MS } from '../../config/dms-config.js';
+import { DEFAULT_CONFIG_SERVICE_SCOPE, DEFAULT_DMS_HTTP_TIMEOUT_MS } from '../../config/dms-config.js';
 
 const logger = getLogger('ConfigurationServiceClient');
 
-export const DEFAULT_CONFIG_SERVICE_SCOPE = 'edfi_admin_api/authMetadata_readonly_access';
+export { DEFAULT_CONFIG_SERVICE_SCOPE };
 
 // Refresh the token this long before it expires
 const TOKEN_REFRESH_MARGIN_MS = 60_000;

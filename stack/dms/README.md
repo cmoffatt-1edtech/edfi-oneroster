@@ -83,8 +83,10 @@ Inside the DMS network, CMS answers as `http://config:8081`, but the tokens it i
 ## Reprovisioning
 
 A DMS data store is provisioned per effective schema: the data standard, the extensions, and the
-DMS version that generates the tables. Provisioning drops and recreates the database, which removes
-the `oneroster12` schema and the OneRoster descriptors. The order is:
+DMS version that generates the tables. Provisioning is create-only and refuses a database
+provisioned for another effective schema, so changing any of these means dropping the database
+(here, wiping the volume) and provisioning a new one. That removes the `oneroster12` schema and the
+OneRoster descriptors. The order is:
 
 1. `ddl provision` (the DMS bootstrap does this), then restart DMS.
 2. Seed the OneRoster descriptors and mappings through the Ed-Fi API.
@@ -120,7 +122,9 @@ To restart DMS with its data kept, use `start-local-dms.ps1 -EnableSwaggerUI`, n
 The DMS stack's `-DatabaseEngine mssql` puts the data store, CMS and the identity stores on SQL
 Server (container `dms-mssql`, host port 1435). The two engines' stacks use the same container
 names, so run one at a time: stop the other with `bootstrap-local-dms.ps1 -d` (keeps its volume)
-first. On SQL Server the `oneroster12` projections are tables filled by `sp_refresh_*` procedures,
+first. Both compose files also name the database service `db`, so starting `mssql.yml` alone under
+the `dms-local` project while the PostgreSQL stack runs replaces the `dms-postgresql` container
+(its volume survives; bring it back with the stack's compose files and `up -d --no-deps db`). On SQL Server the `oneroster12` projections are tables filled by `sp_refresh_*` procedures,
 refreshed by a SQL Server Agent job (`OneRoster 1.2 Refresh (<database>)`, daily at 02:00 as on the
 ODS), so there is no pg-boss database.
 
@@ -147,6 +151,20 @@ procedures and the Agent job in one transaction, then fills the tables (`sp_refr
 when SQL Server Agent isn't running. To refresh by hand: `exec oneroster12.sp_refresh_all
 @ForceRefresh = 1`. Ed-Fi API v8 writes SQL Server connection strings as `Server=host,port`, which
 the service parses.
+
+To compare the SQL Server projections with PostgreSQL ones loaded with the same data and data
+standard, save the PostgreSQL side while that stack runs, then compare once SQL Server runs:
+
+```bash
+DMS_PG="host=localhost;port=5435;username=postgres;password=...;database=edfi_datamanagementservice" \
+  node tests/compare-dms-engines.js --save-pg tests/.dms-compare/pg-ds52
+DMS_MSSQL="Server=localhost,1435;Database=edfi_datamanagementservice;User Id=sa;Password=...;TrustServerCertificate=true" \
+  node tests/compare-dms-engines.js --pg-snapshot tests/.dms-compare/pg-ds52
+```
+
+It exits 0 when every row and column matches (load times and DocumentIds aside). For the API, record
+the PostgreSQL service with `compare-api.js dms-record` and replay against SQL Server with
+`dms-vs-recording`.
 
 ## Data Standard 6.1
 
