@@ -136,4 +136,16 @@ describe('ConfigurationServiceClient', () => {
 
     await expect(client.getDataStores()).rejects.toThrow('Configuration Service token request failed with 400');
   });
+
+  test('gives up on a request that outlasts the timeout, with a 504 ConfigurationServiceError', async () => {
+    // A CMS that never answers: the request ends only when its signal aborts
+    const fetchImpl = jest.fn((url, init) => new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason));
+    }));
+    const client = new ConfigurationServiceClient({ baseUrl: 'http://cms:8081', clientId: 'c', clientSecret: 's', timeoutMs: 20, fetchImpl });
+    const error = await client.getDataStores().catch(e => e);
+    expect(error).toBeInstanceOf(ConfigurationServiceError);
+    expect(error).toMatchObject({ status: 504, message: 'Configuration Service token request timed out after 20 ms' });
+    expect(fetchImpl.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
 });

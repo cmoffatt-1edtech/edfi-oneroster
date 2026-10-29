@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { getLogger } from '../../utils/logger.js';
+import { DEFAULT_DMS_HTTP_TIMEOUT_MS } from '../../config/dms-config.js';
 
 const logger = getLogger('ConfigurationServiceClient');
 
@@ -38,10 +39,14 @@ export class ConfigurationServiceClient {
    * @param {string} options.clientId
    * @param {string} options.clientSecret
    * @param {string} [options.scope] - Defaults to the auth-metadata read-only scope
+   * @param {number} [options.timeoutMs] - Per request; a request that takes longer fails with a
+   *   ConfigurationServiceError (status 504) instead of holding the caller
    * @param {Function} [options.fetchImpl] - Injectable for tests
    * @param {Function} [options.now] - Injectable clock (ms)
    */
-  constructor({ baseUrl, clientId, clientSecret, scope = DEFAULT_CONFIG_SERVICE_SCOPE, fetchImpl = fetch, now = Date.now }) {
+  constructor({
+    baseUrl, clientId, clientSecret, scope = DEFAULT_CONFIG_SERVICE_SCOPE, timeoutMs = DEFAULT_DMS_HTTP_TIMEOUT_MS, fetchImpl = fetch, now = Date.now
+  }) {
     if (!baseUrl || !clientId || !clientSecret) {
       throw new Error('ConfigurationServiceClient needs baseUrl, clientId and clientSecret');
     }
@@ -49,11 +54,24 @@ export class ConfigurationServiceClient {
     this.clientId = clientId;
     this.clientSecret = clientSecret;
     this.scope = scope;
-    this.fetch = fetchImpl;
+    this.timeoutMs = timeoutMs;
+    this.fetchImpl = fetchImpl;
     this.now = now;
     this.token = null;
     this.tokenExpiresAt = 0;
     this.tokenRequest = null;
+  }
+
+  /** fetch with the request timeout; a timeout becomes a ConfigurationServiceError (504). */
+  async fetch(url, options, what) {
+    try {
+      return await this.fetchImpl(url, { ...options, signal: AbortSignal.timeout(this.timeoutMs) });
+    } catch (error) {
+      if (error?.name === 'TimeoutError') {
+        throw new ConfigurationServiceError(`Configuration Service ${what} timed out after ${this.timeoutMs} ms`, 504);
+      }
+      throw error;
+    }
   }
 
   async getToken() {
@@ -76,7 +94,7 @@ export class ConfigurationServiceClient {
         client_secret: this.clientSecret,
         scope: this.scope
       })
-    });
+    }, 'token request');
     if (!res.ok) {
       throw new ConfigurationServiceError(`Configuration Service token request failed with ${res.status}`, res.status);
     }
@@ -109,7 +127,7 @@ export class ConfigurationServiceClient {
       const headers = { Authorization: `Bearer ${token}` };
       if (tenant) headers.Tenant = tenant;
 
-      const res = await this.fetch(joinUrl(this.baseUrl, path), { headers });
+      const res = await this.fetch(joinUrl(this.baseUrl, path), { headers }, `GET ${path}`);
       if (res.status === 401 && attempt === 0) {
         this.invalidateToken(token);
         continue;

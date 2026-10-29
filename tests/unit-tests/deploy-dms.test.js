@@ -7,7 +7,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { describe, test, expect } from '@jest/globals';
-import { ENGINES, findProjections, findReferencedObjects, resolvePlaceholders, splitBatches } from '../../standard/deploy-dms.js';
+import {
+  ENGINES, buildRefreshTrackingSql, findProjections, findReferencedObjects, resolvePlaceholders, resolveSourceTables, splitBatches
+} from '../../standard/deploy-dms.js';
 import { findPlaceholders, listArtifactFiles, listOrchestrationFiles } from '../../standard/dms/build-name-map.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +51,54 @@ describe('findProjections', () => {
 describe('splitBatches', () => {
   test('splits on GO lines only', () => {
     expect(splitBatches("select 1;\nGO\n  go  \nselect 'GO' as category;\nGO\n")).toEqual(['select 1;', "select 'GO' as category;"]);
+  });
+});
+
+describe('resolveSourceTables', () => {
+  const catalog = {
+    versioned: new Set(['edfi.Student', 'edfi.StudentEducationOrganizationAssociation', 'edfi.Staff', 'dms.Descriptor']),
+    columns: new Map([
+      ['edfi.StudentEducationOrganizationAssociationRace', new Set(['StudentEducationOrganizationAssociation_DocumentId'])],
+      // a hash-shortened collection table keeps its resource's name as a prefix
+      ['edfi.StudentEducationOrganizationAssociationStudentIdenti_c15030660d', new Set(['StudentEducationOrganizationAssociation_DocumentId'])],
+      ['edfi.StaffElectronicMail', new Set(['Staff_DocumentId'])]
+    ]),
+    tracked: new Set(['tracked_changes_edfi.Student', 'tracked_changes_edfi.Staff', 'tracked_changes_edfi.Descriptor'])
+  };
+
+  test('maps collections to their resource (the longest name it starts with and carries the id of) and finds delete tables', () => {
+    const referenced = [
+      'edfi.Student', 'edfi.StudentEducationOrganizationAssociationRace',
+      'edfi.StudentEducationOrganizationAssociationStudentIdenti_c15030660d', 'edfi.StaffElectronicMail',
+      'dms.Descriptor', 'auth.EducationOrganizationIdToStudentDocumentId'
+    ];
+    expect(resolveSourceTables(referenced, catalog)).toEqual({
+      resources: ['dms.Descriptor', 'edfi.Staff', 'edfi.Student', 'edfi.StudentEducationOrganizationAssociation'],
+      deletes: ['tracked_changes_edfi.Descriptor', 'tracked_changes_edfi.Staff', 'tracked_changes_edfi.Student']
+    });
+  });
+
+  test('refuses an object it cannot tie to a versioned resource', () => {
+    expect(() => resolveSourceTables(['edfi.SomethingElse'], catalog)).toThrow("can't track its changes");
+  });
+});
+
+describe('buildRefreshTrackingSql', () => {
+  const sql = buildRefreshTrackingSql(
+    { users: { resources: ['edfi.Staff'], deletes: ['tracked_changes_edfi.Staff'] }, orgs: { resources: ['edfi.School'], deletes: [] } },
+    ['users']
+  );
+
+  test('defines the state table and a version per view from its sources', () => {
+    expect(sql).toContain('create table if not exists oneroster12.refresh_state');
+    expect(sql).toContain('create or replace function oneroster12.source_version(p_view text) returns bigint');
+    expect(sql).toMatch(/when 'orgs' then greatest\(0,\s+\(select max\("ContentVersion"\) from edfi\."School"\)\)/);
+    expect(sql).toContain('(select max("ChangeVersion") from tracked_changes_edfi."Staff")');
+  });
+
+  test('clears the recorded state of the redeployed views only', () => {
+    expect(sql).toContain("delete from oneroster12.refresh_state where view_name in ('users');");
+    expect(buildRefreshTrackingSql({}, [])).not.toContain('delete from');
   });
 });
 

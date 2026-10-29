@@ -77,7 +77,8 @@ export function createDmsDataStoreProvider(env = process.env) {
     baseUrl: settings.configServiceUrl,
     clientId: settings.clientId,
     clientSecret: settings.clientSecret,
-    scope: settings.scope
+    scope: settings.scope,
+    timeoutMs: settings.timeoutMs
   });
   return createConfigurationServiceDataStoreProvider({
     client,

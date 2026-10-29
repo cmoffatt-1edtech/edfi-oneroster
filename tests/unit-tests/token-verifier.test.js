@@ -159,6 +159,14 @@ describe('createCmsSelfContainedTokenVerifier', () => {
     expect(payload.dataStoreIds).toBe('1');
   });
 
+  test('fails a token check when the JWKS request outlasts the timeout', async () => {
+    const fetchImpl = jest.fn((url, init) => new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason));
+    }));
+    const verifier = createCmsSelfContainedTokenVerifier({ issuer: CMS_ISSUER, audience: 'account', jwksUrl: 'http://cms/jwks', timeoutMs: 20, fetchImpl });
+    await expect(verifier.verify(await cmsToken())).rejects.toThrow('JWKS request timed out after 20 ms');
+  });
+
   test('fetches the JWKS once and reuses it', async () => {
     const { verifier, fetchImpl } = createVerifier();
     await verifier.verify(await cmsToken());

@@ -5,7 +5,7 @@
 
 import { jwtVerify, importSPKI, importJWK, compactVerify, decodeProtectedHeader, createRemoteJWKSet } from 'jose';
 import { getPlatform, PLATFORMS } from '../config/platform.js';
-import { getDmsTokenSettings, TOKEN_PROFILES } from '../config/dms-config.js';
+import { DEFAULT_DMS_HTTP_TIMEOUT_MS, getDmsTokenSettings, TOKEN_PROFILES } from '../config/dms-config.js';
 
 /**
  * Token verifiers. Each one exposes verify(token) -> Promise<payload> and throws when the token is
@@ -60,10 +60,22 @@ export function createPemTokenVerifier({ publicKeyPem, audience, issuer }) {
   };
 }
 
+/** fetch with a timeout, so an unresponsive issuer fails the check instead of holding the request. */
+async function fetchWithTimeout(fetchImpl, url, timeoutMs, what) {
+  try {
+    return await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    if (error?.name === 'TimeoutError') {
+      throw new Error(`${what} request timed out after ${timeoutMs} ms`);
+    }
+    throw error;
+  }
+}
+
 /** The JWKS URL: configured directly, or the jwks_uri of the OIDC metadata document. */
-async function resolveJwksUrl({ jwksUrl, metadataUrl }, fetchImpl) {
+async function resolveJwksUrl({ jwksUrl, metadataUrl, timeoutMs = DEFAULT_DMS_HTTP_TIMEOUT_MS }, fetchImpl) {
   if (jwksUrl) return jwksUrl;
-  const res = await fetchImpl(metadataUrl);
+  const res = await fetchWithTimeout(fetchImpl, metadataUrl, timeoutMs, 'OIDC metadata');
   if (!res.ok) {
     throw new Error(`OIDC metadata request failed with ${res.status}`);
   }
@@ -92,6 +104,7 @@ const UNKNOWN_KID_REFETCH_MS = 30 * 1000;
  * @param {string} [options.jwksUrl] - Overrides the metadata's jwks_uri (needed when it names a Docker-internal host)
  * @param {string} [options.metadataUrl] - OIDC metadata document
  * @param {number} [options.clockSkewSeconds=60]
+ * @param {number} [options.timeoutMs] - For the metadata and JWKS requests
  */
 export function createCmsSelfContainedTokenVerifier({
   issuer,
@@ -99,6 +112,7 @@ export function createCmsSelfContainedTokenVerifier({
   jwksUrl,
   metadataUrl,
   clockSkewSeconds = 60,
+  timeoutMs = DEFAULT_DMS_HTTP_TIMEOUT_MS,
   fetchImpl = fetch,
   now = Date.now
 }) {
@@ -110,8 +124,8 @@ export function createCmsSelfContainedTokenVerifier({
   async function refresh() {
     if (!refreshing) {
       refreshing = (async () => {
-        const url = await resolveJwksUrl({ jwksUrl, metadataUrl }, fetchImpl);
-        const res = await fetchImpl(url);
+        const url = await resolveJwksUrl({ jwksUrl, metadataUrl, timeoutMs }, fetchImpl);
+        const res = await fetchWithTimeout(fetchImpl, url, timeoutMs, 'JWKS');
         if (!res.ok) {
           throw new Error(`JWKS request failed with ${res.status}`);
         }
@@ -191,14 +205,16 @@ export function createCmsSelfContainedTokenVerifier({
  * Verify standards-conforming tokens (Keycloak, or CMS once its tokens conform) with jose's
  * jwtVerify and a remote JWKS. iss must match exactly.
  */
-export function createStandardJwksTokenVerifier({ issuer, audience, jwksUrl, metadataUrl, clockSkewSeconds = 60, fetchImpl = fetch }) {
+export function createStandardJwksTokenVerifier({
+  issuer, audience, jwksUrl, metadataUrl, clockSkewSeconds = 60, timeoutMs = DEFAULT_DMS_HTTP_TIMEOUT_MS, fetchImpl = fetch
+}) {
   let keySet = null;
 
   return {
     mode: TOKEN_PROFILES.STANDARD,
     async verify(token) {
       if (!keySet) {
-        keySet = createRemoteJWKSet(new URL(await resolveJwksUrl({ jwksUrl, metadataUrl }, fetchImpl)));
+        keySet = createRemoteJWKSet(new URL(await resolveJwksUrl({ jwksUrl, metadataUrl, timeoutMs }, fetchImpl)), { timeoutDuration: timeoutMs });
       }
       const { payload } = await jwtVerify(token, keySet, { issuer, audience, clockTolerance: clockSkewSeconds });
       return payload;

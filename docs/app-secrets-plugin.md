@@ -36,6 +36,28 @@ When the plugin runs, values returned **overwrite** any literals already in the 
 
 If the plugin **omits** `pgBossConnectionConfig`, core does not set `PG_BOSS_CONNECTION_CONFIG`; with **`DB_TYPE=postgres`**, validation still requires it unless another source populated it earlier.
 
+## Ed-Fi API v8 (`PLATFORM=dms`)
+
+With `PLATFORM=dms` the ODS secrets don't apply, and the plugin supplies the DMS ones instead. Any of
+these, but at least one:
+
+```javascript
+/**
+ * @returns {Promise<{
+ *   configServiceClientSecret?: string,   // -> CONFIG_SERVICE_CLIENT_SECRET
+ *   configServiceEncryptionKey?: string,  // -> CONFIG_SERVICE_ENCRYPTION_KEY
+ *   dataStores?: Object,                  // -> DATA_STORES (JSON), the static data-store map
+ *   pgBossConnectionConfig?: { adminConnection: string }
+ * }>}
+ */
+```
+
+Returned values overwrite the environment, as on the ODS/API, and the startup log names the variables
+that were set (never their values). Startup validation then checks the combination as it does for
+the environment: with the Configuration Service, the client secret and the encryption key are
+required; with static `dataStores`, no key is needed unless a connection string is encrypted. The
+client id, URLs and other non-secret settings stay in the environment.
+
 ## `APP_SECRETS_MODULE` specifier
 
 Same rules as **`TENANTS_CONFIG_MODULE`** (see [Tenant configuration plugin](./tenants-config-plugin.md)): resolved relative to the process current working directory for `./`, `../`, `.\` or `..\`; absolute paths and `file:` URLs are supported; bare specifiers resolve as npm packages.
@@ -62,3 +84,7 @@ APP_SECRETS_FILE=/secure/path/app-secrets.json
 ```
 
 `pgBossConnectionConfig` is optional — include it (with `DB_TYPE=postgres`) to supply `PG_BOSS_CONNECTION_CONFIG` from the plugin; otherwise it must come from the environment.
+
+With `PLATFORM=dms` the example reads the DMS fields from the same file instead
+(`configServiceClientSecret`, `configServiceEncryptionKey`, `dataStores`, `pgBossConnectionConfig`)
+and passes on the ones present.

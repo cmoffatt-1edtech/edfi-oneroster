@@ -14,6 +14,9 @@ export const TOKEN_PROFILES = Object.freeze({
 });
 
 const SCOPE_PREFIX = 'https://purl.imsglobal.org/spec/or/v1p2/scope/';
+
+// Outbound calls to the Configuration Service and the token issuer (DMS_HTTP_TIMEOUT_MS)
+export const DEFAULT_DMS_HTTP_TIMEOUT_MS = 10_000;
 const KNOWN_SCOPES = ['roster.readonly', 'roster-core.readonly', 'roster-demographics.readonly'].map(s => SCOPE_PREFIX + s);
 
 function trimmed(name, env) {
@@ -90,7 +93,8 @@ export function getDmsTokenSettings(env = process.env) {
     metadataUrl: trimmed('OAUTH2_METADATA_URL', env),
     jwksUrl: trimmed('OAUTH2_JWKS_URL', env),
     tokenUrl: trimmed('OAUTH2_TOKEN_URL', env),
-    clockSkewSeconds: Number(trimmed('OAUTH2_CLOCK_SKEW_SECONDS', env) ?? 60)
+    clockSkewSeconds: Number(trimmed('OAUTH2_CLOCK_SKEW_SECONDS', env) ?? 60),
+    timeoutMs: Number(trimmed('DMS_HTTP_TIMEOUT_MS', env) ?? DEFAULT_DMS_HTTP_TIMEOUT_MS)
   };
 }
 
@@ -116,7 +120,8 @@ export function getDmsDataStoreSettings(env = process.env) {
     encryptionKey: trimmed('CONFIG_SERVICE_ENCRYPTION_KEY', env),
     allowLegacy: parseBoolean(trimmed('CONFIG_SERVICE_ALLOW_LEGACY_CONNECTION_STRINGS', env), true),
     cacheSeconds: Number(trimmed('DATA_STORE_CACHE_SECONDS', env) ?? 600),
-    useReadReplica: parseBoolean(trimmed('USE_READ_REPLICA', env), false)
+    useReadReplica: parseBoolean(trimmed('USE_READ_REPLICA', env), false),
+    timeoutMs: Number(trimmed('DMS_HTTP_TIMEOUT_MS', env) ?? DEFAULT_DMS_HTTP_TIMEOUT_MS)
   };
 }
 
@@ -127,6 +132,40 @@ function isHttpUrl(value) {
   } catch {
     return false;
   }
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function isPlainHttpOffHost(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' && !LOOPBACK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Startup warnings for PLATFORM=dms: secrets or signing keys that would cross the network
+ * without TLS. Plain http is normal on a private Docker network (the local stack), so these are
+ * warnings, not errors.
+ * @returns {string[]}
+ */
+export function dmsTransportWarnings(env) {
+  const warnings = [];
+  const configServiceUrl = trimmed('CONFIG_SERVICE_URL', env);
+  if (!trimmed('DATA_STORES', env) && configServiceUrl && isPlainHttpOffHost(configServiceUrl)) {
+    warnings.push('CONFIG_SERVICE_URL uses http: the Configuration Service client secret and the data stores\' ' +
+      'connection strings cross the network unencrypted. Use https outside a private network.');
+  }
+  for (const name of ['OAUTH2_JWKS_URL', 'OAUTH2_METADATA_URL']) {
+    const value = trimmed(name, env);
+    if (value && isPlainHttpOffHost(value)) {
+      warnings.push(`${name} uses http: the token signing keys are fetched without TLS, so anyone on the path ` +
+        'could substitute a key and forge tokens. Use https outside a private network.');
+    }
+  }
+  return warnings;
 }
 
 /**
@@ -197,6 +236,11 @@ export function validateDmsSettings(env, multiTenancyEnabled) {
     }
     const url = trimmed('CONFIG_SERVICE_URL', env);
     if (url && !isHttpUrl(url)) errors.push('CONFIG_SERVICE_URL must be an http(s) URL');
+  }
+
+  const timeout = trimmed('DMS_HTTP_TIMEOUT_MS', env);
+  if (timeout !== null && !(Number.isInteger(Number(timeout)) && Number(timeout) > 0)) {
+    errors.push('DMS_HTTP_TIMEOUT_MS must be a positive integer (milliseconds) if set');
   }
 
   const cacheSeconds = trimmed('DATA_STORE_CACHE_SECONDS', env);

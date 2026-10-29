@@ -102,6 +102,7 @@ describe('DMS data-store providers', () => {
 
       expect(await provider.isTenant('tenant1')).toBe(true);
       expect(await provider.isTenant('Tenant2')).toBe(false);
+      expect(await provider.listTenants()).toEqual(['Tenant1']);
       expect(client.getTenants).toHaveBeenCalledTimes(1);
       expect(await provider.isClientBoundToTenant('bound', 'Tenant1')).toBe(true);
       expect(await provider.isClientBoundToTenant('other', 'Tenant1')).toBe(false);
@@ -167,6 +168,17 @@ describe('DMS data-store providers', () => {
       await expect(provider.resolveConnectionString({ dataStoreId: 1 })).resolves.toBe('host=localhost;port=5435;database=edfi_datamanagementservice');
       await expect(provider.resolveConnectionString({ dataStoreId: 2 })).resolves.toBe(vectors.plaintext);
       await expect(provider.resolveConnectionString({ dataStoreId: 3 })).rejects.toBeInstanceOf(DataStoreNotFoundError);
+    });
+
+    test('lists no tenants (single tenant)', async () => {
+      await expect(provider.listTenants()).resolves.toEqual([]);
+    });
+
+    test('needs no encryption key while every connection string is plain text', async () => {
+      const keyless = createStaticDataStoreProvider({ dataStores: { 1: { ConnectionString: 'host=db;port=5432;database=x' } } });
+      await expect(keyless.resolveConnectionString({ dataStoreId: 1 })).resolves.toBe('host=db;port=5432;database=x');
+      const encrypted = createStaticDataStoreProvider({ dataStores: { 2: { ConnectionString: vectors.envelope } } });
+      await expect(encrypted.resolveConnectionString({ dataStoreId: 2 })).rejects.toThrow('encryption key is required');
     });
 
     test('refreshes on the query connection and carries a connection version', async () => {

@@ -119,6 +119,14 @@ export function createConfigurationServiceDataStoreProvider({
 
   const queriesReplica = dataStore => Boolean(useReadReplica && dataStore.readReplicaConnectionString);
 
+  async function loadTenants() {
+    if (!tenantCache || now() >= tenantCache.expiresAt) {
+      const names = (await client.getTenants() || []).map(t => String(t.name));
+      tenantCache = { expiresAt: now() + TENANT_CACHE_MS, names, keys: new Set(names.map(name => name.toLowerCase())) };
+    }
+    return tenantCache;
+  }
+
   return {
     name: 'configService',
     listDataStores,
@@ -139,14 +147,12 @@ export function createConfigurationServiceDataStoreProvider({
     },
 
     async isTenant(tenantId) {
-      if (!tenantCache || now() >= tenantCache.expiresAt) {
-        const tenants = await client.getTenants();
-        tenantCache = {
-          expiresAt: now() + TENANT_CACHE_MS,
-          names: new Set((tenants || []).map(t => String(t.name).toLowerCase()))
-        };
-      }
-      return tenantCache.names.has(tenantKey(tenantId));
+      return (await loadTenants()).keys.has(tenantKey(tenantId));
+    },
+
+    /** Tenant names as the Configuration Service spells them (cached like isTenant). */
+    async listTenants() {
+      return [...(await loadTenants()).names];
     },
 
     /** DMS answers 401 when the client's application is not bound to the route tenant. */
@@ -218,6 +224,10 @@ export function createStaticDataStoreProvider({ dataStores, encryptionKey = null
 
     isTenant() {
       return Promise.resolve(false);
+    },
+
+    listTenants() {
+      return Promise.resolve([]);
     },
 
     isClientBoundToTenant() {
