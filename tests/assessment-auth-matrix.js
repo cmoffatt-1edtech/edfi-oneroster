@@ -17,7 +17,10 @@
  *      the fixture without refreshing (or locking) the real views.
  *   3. For each caller, the collection, single-record and sub-collection queries run against the
  *      scratch schema with the caller's ed-org claim, and the fixture rows returned are compared with
- *      ASSESSMENT_VISIBILITY. Offerings and enrollments must include nothing outside the fixture.
+ *      the expected ones. The callers: each of ASSESSMENT_VISIBILITY's organizations, the pairs in
+ *      ASSESSMENT_CLAIM_PAIRS (the union of what each sees), and one claiming every published
+ *      organization (ASSESSMENT_FULL_ACCESS_VISIBILITY). Offerings and enrollments must include nothing
+ *      outside the fixture, except for the full-access caller.
  *
  * Usage:
  *   ODS_PG="host=...;..." DMS_PG="host=...;..." node tests/assessment-auth-matrix.js [--platforms ods]
@@ -34,7 +37,10 @@ import OneRosterQueryService from '../src/services/database/OneRosterQueryServic
 import AuthorizationQueryService from '../src/services/database/AuthorizationQueryService.js';
 import { ODS_AUTH_OBJECT_MAP, DMS_AUTH_OBJECT_MAP } from '../src/platform/auth-object-map.js';
 import { PLATFORMS, Loader, loadNameMap, readDefinitions, readSequences, changedSequences } from './compare-dms-fixture.js';
-import { ASSESSMENT_VISIBILITY, FIXTURE, toOdsHierarchyRows, toDmsHierarchyRows } from './dms-parity-fixture.js';
+import {
+  ASSESSMENT_VISIBILITY, ASSESSMENT_FIXTURE_IDS, ASSESSMENT_CLAIM_PAIRS, ASSESSMENT_FULL_ACCESS_VISIBILITY,
+  FIXTURE, toOdsHierarchyRows, toDmsHierarchyRows
+} from './dms-parity-fixture.js';
 
 const SCRATCH = 'oneroster12_authmatrix';
 const VIEWS = ['assessments', 'assessmentofferings', 'assessmentenrollments'];
@@ -58,6 +64,21 @@ function clientFor(trx) {
 
 const sorted = values => [...values].sort();
 const sameSet = (a, b) => JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
+const union = lists => [...new Set(lists.flat())];
+
+/** The callers and what each should see; the full-access claim is every published organization. */
+async function matrixCallers(trx) {
+  const single = Object.entries(ASSESSMENT_VISIBILITY).map(([org, expected]) => ({ name: org, claim: [org], expected, fixtureOnly: true }));
+  const pairs = ASSESSMENT_CLAIM_PAIRS.map(pair => ({
+    name: pair.join('+'),
+    claim: pair.map(String),
+    expected: Object.fromEntries(VIEWS.map(view => [view, union(pair.map(org => ASSESSMENT_VISIBILITY[org][view]))])),
+    fixtureOnly: true
+  }));
+  const published = await trx.withSchema(SCRATCH).from('orgs').distinct('educationOrganizationId');
+  const full = { name: 'full access', claim: published.map(row => String(row.educationOrganizationId)), expected: ASSESSMENT_FULL_ACCESS_VISIBILITY, fixtureOnly: false };
+  return [...single, ...pairs, full];
+}
 
 async function runPlatform(platform, connectionString) {
   const knex = knexFactory({
@@ -95,14 +116,22 @@ async function runPlatform(platform, connectionString) {
       const service = new OneRosterQueryService(trx, SCRATCH);
       service.authService = new AuthorizationQueryService(trx, SCRATCH, 'auth', AUTH_OBJECTS[platform.name]);
 
-      // Every fixture row of each view: the SEA reaches all of them
-      const fixtureIds = Object.fromEntries(VIEWS.map(view => [view, new Set(Object.values(ASSESSMENT_VISIBILITY).flatMap(c => c[view]))]));
+      const fixtureIds = Object.fromEntries(VIEWS.map(view => [view, new Set(ASSESSMENT_FIXTURE_IDS[view])]));
 
-      for (const [caller, expected] of Object.entries(ASSESSMENT_VISIBILITY)) {
+      for (const { name: caller, claim, expected, fixtureOnly } of await matrixCallers(trx)) {
         report.callers++;
-        const claim = [caller];
+        if (!fixtureOnly) {
+          report.checks++;
+          if (!(await service.authService.hasFullEducationOrganizationAccess(claim))) {
+            failures.push(`${caller}: the claim doesn't reach every published organization`);
+          }
+        }
+        const visible = {};
         for (const view of VIEWS) {
-          const rows = await service.queryMany(view, CONFIG, { limit: '500' }, null, claim);
+          const parentColumn = PARENTS[view]?.[1];
+          const rows = await service.queryMany(view, parentColumn ? { ...CONFIG, selectableFields: ['sourcedId', parentColumn] } : CONFIG,
+            { limit: '500' }, null, claim);
+          visible[view] = rows;
           const ids = rows.map(row => row.sourcedId);
           const seen = ids.filter(id => fixtureIds[view].has(id));
           report.checks++;
@@ -111,7 +140,7 @@ async function runPlatform(platform, connectionString) {
           }
           // Grand Bend's assessments have no defining organization, so everyone sees them; nothing else
           // outside the fixture may leak to a fixture caller
-          if (view !== 'assessments') {
+          if (view !== 'assessments' && fixtureOnly) {
             report.checks++;
             const outside = ids.filter(id => !fixtureIds[view].has(id));
             if (outside.length) failures.push(`${caller} ${view}: ${outside.length} row(s) outside the fixture`);
@@ -139,6 +168,15 @@ async function runPlatform(platform, connectionString) {
               }
             }
           }
+        }
+
+        // Every reference the caller receives resolves for them: an enrollment's offering and an
+        // offering's assessment are visible too
+        for (const [view, [parentView, column]] of Object.entries(PARENTS)) {
+          const parents = new Set(visible[parentView].map(row => row.sourcedId));
+          report.checks++;
+          const dangling = visible[view].filter(row => !parents.has(row[column]));
+          if (dangling.length) failures.push(`${caller} ${view}: ${dangling.length} row(s) whose ${parentView.replace(/s$/, '')} the caller can't see`);
         }
       }
       throw rollback;

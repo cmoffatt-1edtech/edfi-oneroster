@@ -172,10 +172,16 @@ the assigning organization.
   `compare-api.js ods-vs-dms | dms-record --assessment-rostering`.
 - Bruno: `tests/bruno/tests-assessment` with `environments/assessment-ods.bru` or
   `assessment-dms.bru` (needs a client for school 255901001).
-- Not covered yet: the authorization matrix on SQL Server and with several ed-orgs in one claim;
-  `deploy-mssql.js` and the README's manual deploy; fixture data with keys that differ only in case,
-  lower-case or punctuated descriptor code values, or a defining or assigning organization outside the
-  hierarchy seen by a full-access caller; a check that org references resolve (`tests/href-integrity.js`).
+- The matrix also runs callers claiming two organizations (`ASSESSMENT_CLAIM_PAIRS`) and one
+  claiming every published organization, who must still not see the service center's own assessment
+  and sitting; and it checks that every enrollment's offering and every offering's assessment is
+  visible to the same caller. The fixture pins the code-point order of local subject codes.
+- `tests/href-integrity.js` checks the assessment links (user, offering, assessment, school, org) at
+  the database level.
+- Not covered yet: the authorization matrix on SQL Server (the filters are the same compiled SQL,
+  checked in unit tests and against PostgreSQL through the API for three callers); keys that differ
+  only in case (a documented limitation); an automated run of `deploy-mssql.js` and the README's
+  manual deploy (checked by hand in phase 6).
 
 ## End-user docs to update (Ed-Fi docs repo, not edited here)
 

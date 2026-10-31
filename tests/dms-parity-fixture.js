@@ -89,6 +89,10 @@ const D = {
   mathematics: descriptor('AcademicSubjectDescriptor', 'Mathematics'),
   reading: descriptor('AcademicSubjectDescriptor', 'Reading'),
   writing: descriptor('AcademicSubjectDescriptor', 'Writing'),
+  // Local subject codes in mixed case and with punctuation, which locale-aware sorts order differently
+  localSubjectLower: descriptor('AcademicSubjectDescriptor', 'ab', UNMAPPED),
+  localSubjectUpper: descriptor('AcademicSubjectDescriptor', 'Ac', UNMAPPED),
+  localSubjectHyphen: descriptor('AcademicSubjectDescriptor', 'Re-test', UNMAPPED),
   computerBased: descriptor('PlatformTypeDescriptor', 'Computer-based')
 };
 
@@ -313,7 +317,12 @@ export const FIXTURE = {
     { key: 'collision-a', namespace: 'uri://example.org/Assessment', identifier: 'TEST-PART1', title: 'Collision A' },
     { key: 'collision-b', namespace: 'uri://example.org/Assessment-TEST', identifier: 'PART1', title: 'Collision B' },
     // backslash, pipe, hyphen, mixed case and a non-ASCII character; a title that looks like JSON
-    { key: 'escapes', namespace: FX_ASSESSMENT, identifier: 'Esc\\Back|Pipe-Ñu', title: '[Pilot]' }
+    { key: 'escapes', namespace: FX_ASSESSMENT, identifier: 'Esc\\Back|Pipe-Ñu', title: '[Pilot]' },
+    // local subject codes: listed by code point, the same on every engine and locale
+    { key: 'order', namespace: FX_ASSESSMENT, identifier: 'FX-Order', title: 'Fixture Order', subjects: [D.localSubjectLower, D.localSubjectHyphen, D.localSubjectUpper] },
+    // defined and offered (O5) only by the service center: nobody reaches it, not even a caller who
+    // reaches every published organization
+    { key: 'vendor', namespace: FX_ASSESSMENT, identifier: 'FX-Vendor-Pilot', title: 'Fixture Vendor Pilot', definingOrg: SERVICE_CENTER }
   ],
   assessmentAdministrations: [
     // O1: assigned by the state; several windows, the last open-ended; participation changed later
@@ -328,7 +337,9 @@ export const FIXTURE = {
     { key: 'O3', assessment: 'science', assigning: SERVICE_CENTER, identifier: 'Vendor Sitting', periods: [{ begin: '2026-02-10', end: '2026-02-10' }], participating: [] },
     // O4: assigned by district B with district A taking part; no registrations. District B's own
     // school doesn't see it: going up, the assigning organization counts only without participants
-    { key: 'O4', assessment: 'math', assigning: LEA_B, identifier: 'B Sitting', periods: [{ begin: '2026-03-15', end: '2026-03-20' }], participating: [{ org: LEA }] }
+    { key: 'O4', assessment: 'math', assigning: LEA_B, identifier: 'B Sitting', periods: [{ begin: '2026-03-15', end: '2026-03-20' }], participating: [{ org: LEA }] },
+    // O5: the service center's own sitting, with no participation or registrations
+    { key: 'O5', assessment: 'vendor', assigning: SERVICE_CENTER, identifier: 'Vendor Pilot', periods: [], participating: [] }
   ],
   studentAssessmentRegistrations: [
     { administration: 'O1', student: 'FX-STU-1', school: HIGH, org: LEA, grade: D.tenthGrade, platform: D.computerBased, lastModified: '2026-02-07T09:00:00Z' },
@@ -930,10 +941,13 @@ const WRITING = assessmentId(FX_ASSESSMENT, 'FX-Writing');
 const COLLISION_A = assessmentId('uri://example.org/Assessment', 'TEST-PART1');
 const COLLISION_B = assessmentId('uri://example.org/Assessment-TEST', 'PART1');
 const ESCAPES = assessmentId(FX_ASSESSMENT, 'Esc\\Back|Pipe-Ñu');
+const ORDER = assessmentId(FX_ASSESSMENT, 'FX-Order');
+const VENDOR = assessmentId(FX_ASSESSMENT, 'FX-Vendor-Pilot');
 const O1 = offeringId(FX_ASSESSMENT, 'FX-Math', SEA, 'Spring Window|A');
 const O2 = offeringId(FX_ASSESSMENT, 'FX-Math', LEA, 'District Retest');
 const O3 = offeringId(FX_ASSESSMENT, 'FX-Science', SERVICE_CENTER, 'Vendor Sitting');
 const O4 = offeringId(FX_ASSESSMENT, 'FX-Math', LEA_B, 'B Sitting');
+const O5 = offeringId(FX_ASSESSMENT, 'FX-Vendor-Pilot', SERVICE_CENTER, 'Vendor Pilot');
 const R1 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', SEA, 'Spring Window|A', LEA, 'FX-STU-1');
 const R2 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', SEA, 'Spring Window|A', LEA_B, 'FX-STU-6');
 const R3 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', LEA, 'District Retest', LEA, 'FX-STU-1');
@@ -953,10 +967,10 @@ export const EXPECTED_COUNTS = {
   users: 22, // 11 student rows (one per school), 7 staff rows, 4 contacts
   enrollments: 9,
   demographics: 11,
-  assessments: 6,
-  assessmentofferings: 4,
+  assessments: 8,
+  assessmentofferings: 5,
   assessmentenrollments: 5,
-  assessmentauthorgs: 14 // 2 defining, 4 assigning, 4 participating, 4 registration schools
+  assessmentauthorgs: 16 // 3 defining, 5 assigning, 4 participating, 4 registration schools
 };
 
 /**
@@ -1110,6 +1124,9 @@ export const EXPECTATIONS = [
   { view: 'assessments', id: COLLISION_A, values: { title: 'Collision A', identifier: 'TEST-PART1' } },
   { view: 'assessments', id: COLLISION_B, values: { title: 'Collision B', identifier: 'PART1' } },
   { view: 'assessments', id: ESCAPES, values: { title: '[Pilot]', identifier: 'Esc\\Back|Pipe-Ñu' } },
+  // code point order: upper case, then the hyphenated code, then lower case
+  { view: 'assessments', id: ORDER, values: { subjects: ['Ac', 'Re-test', 'ab'] } },
+  { view: 'assessments', id: VENDOR, values: { org: null, definingEducationOrganizationId: String(SERVICE_CENTER) } },
 
   {
     view: 'assessmentofferings', id: O1,
@@ -1136,6 +1153,7 @@ export const EXPECTATIONS = [
     }
   },
   { view: 'assessmentofferings', id: O2, values: { org: orgRef(LEA), testingWindows: [], dateLastModified: at(LAST_MODIFIED) } },
+  { view: 'assessmentofferings', id: O5, values: { org: null, assessment: assessmentRef(VENDOR), testingWindows: [] } },
   {
     view: 'assessmentofferings', id: O3,
     values: {
@@ -1194,6 +1212,7 @@ export const EXPECTATIONS = [
     values: { assessmentSourcedId: SCIENCE, assessmentOfferingSourcedId: null, educationOrganizationId: String(SERVICE_CENTER), orgRole: 'defining' }
   },
   { view: 'assessmentauthorgs', id: authOrgId(MATH, O1, SEA, 'assigning'), values: { assessmentOfferingSourcedId: O1, orgRole: 'assigning' } },
+  { view: 'assessmentauthorgs', id: authOrgId(VENDOR, O5, SERVICE_CENTER, 'assigning'), values: { assessmentSourcedId: VENDOR, orgRole: 'assigning' } },
   { view: 'assessmentauthorgs', id: authOrgId(MATH, O4, LEA, 'participating'), values: { educationOrganizationId: String(LEA) } },
   // one row per registration school, however many students
   { view: 'assessmentauthorgs', id: authOrgId(MATH, O1, HIGH, 'registration'), values: { orgRole: 'registration' } },
@@ -1209,34 +1228,53 @@ export const EXPECTATIONS = [
  */
 export const ASSESSMENT_VISIBILITY = {
   [SEA]: {
-    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES],
+    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
     assessmentofferings: [O1, O2, O3, O4],
     assessmentenrollments: [R1, R2, R3, R4, R5]
   },
   [LEA]: {
-    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES],
+    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
     assessmentofferings: [O1, O2, O4],
     assessmentenrollments: [R1, R3, R5]
   },
   [LEA_B]: {
-    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES],
+    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
     assessmentofferings: [O1, O3, O4],
     assessmentenrollments: [R2, R4]
   },
   [HIGH]: {
-    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES],
+    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
     assessmentofferings: [O1, O2, O4],
     assessmentenrollments: [R1, R3, R5]
   },
   [MIDDLE]: {
-    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES],
+    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
     assessmentofferings: [O1, O4],
     assessmentenrollments: []
   },
   [SCHOOL_B1]: {
-    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES],
+    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
     assessmentofferings: [O1, O3],
     assessmentenrollments: [R2, R4]
   }
+};
+
+// Every fixture row of the assessment views, including the ones no caller in ASSESSMENT_VISIBILITY sees
+export const ASSESSMENT_FIXTURE_IDS = {
+  assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER, VENDOR],
+  assessmentofferings: [O1, O2, O3, O4, O5],
+  assessmentenrollments: [R1, R2, R3, R4, R5]
+};
+
+// Callers that claim two organizations see what each sees alone: none of these pairs has a
+// registration at one organization's school for a student only the other is related to
+export const ASSESSMENT_CLAIM_PAIRS = [[HIGH, LEA_B], [MIDDLE, SCHOOL_B1]];
+
+// A caller who reaches every published organization skips the enrollment filter, but assessments and
+// offerings stay filtered: the service center's own assessment and sitting stay hidden
+export const ASSESSMENT_FULL_ACCESS_VISIBILITY = {
+  assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
+  assessmentofferings: [O1, O2, O3, O4],
+  assessmentenrollments: [R1, R2, R3, R4, R5]
 };
 
