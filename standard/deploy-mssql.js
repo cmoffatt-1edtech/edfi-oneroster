@@ -218,11 +218,62 @@ async function checkPrerequisites(pool) {
             console.log('⚠️  WARNING: No "edfi" schema found. Ensure this is an Ed-Fi ODS database.');
         }
 
+        const agentStatus = await checkSqlServerAgent(pool);
+
         console.log('');
+        return agentStatus;
 
     } catch (err) {
         console.error('❌ Prerequisites check failed:', err.message);
         throw err;
+    }
+}
+
+// The SQL Server Agent job script is named sql_agent.sql (DS5, DS6) or sql_agent_job.sql (DS4).
+function isAgentJobFile(relPath) {
+    return /^sql_agent(_job)?\.sql$/i.test(path.basename(relPath));
+}
+
+// Returns 'running', 'stopped' or 'unknown'. The Agent job script fails wherever the
+// Agent is not running (SQL Server Express, Azure SQL Database, containers without
+// MSSQL_AGENT_ENABLED), so the deploy skips it there instead of failing.
+async function checkSqlServerAgent(pool) {
+    try {
+        const serverResult = await pool.request().query(`
+            SELECT
+                CAST(SERVERPROPERTY('EngineEdition') AS INT) AS EngineEdition,
+                HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE') AS CanViewServerState
+        `);
+        const { EngineEdition, CanViewServerState } = serverResult.recordset[0];
+
+        // EngineEdition 5 is Azure SQL Database, which has no SQL Server Agent.
+        if (EngineEdition === 5) {
+            console.log('⚠️  SQL Server Agent is not available on Azure SQL Database');
+            return 'stopped';
+        }
+
+        // The Agent connects with program names such as 'SQLAgent - Generic Refresher'.
+        const sessionResult = await pool.request().query(`
+            SELECT COUNT(*) AS AgentSessions
+            FROM sys.dm_exec_sessions
+            WHERE program_name LIKE N'SQLAgent%'
+        `);
+        if (sessionResult.recordset[0].AgentSessions > 0) {
+            console.log('✅ SQL Server Agent is running');
+            return 'running';
+        }
+
+        // Without VIEW SERVER STATE a login sees only its own session, so no Agent
+        // session proves nothing.
+        if (CanViewServerState === 1) {
+            console.log('⚠️  SQL Server Agent is not running');
+            return 'stopped';
+        }
+        console.log('⚠️  SQL Server Agent status unknown (this login lacks VIEW SERVER STATE)');
+        return 'unknown';
+    } catch (err) {
+        console.log(`⚠️  Could not check SQL Server Agent status: ${err.message}`);
+        return 'unknown';
     }
 }
 
@@ -268,26 +319,40 @@ async function deploy() {
         const pool = await sql.connect(config);
         console.log('✅ Connected successfully\\n');
 
-        // Check prerequisites
-        await checkPrerequisites(pool);
+        // Check prerequisites (also reports whether SQL Server Agent is running)
+        const agentStatus = await checkPrerequisites(pool);
 
         let successCount = 0;
         let failCount = 0;
+        // Failures outside the Agent job script: the refresh procedures need all of these.
+        let requiredFailCount = 0;
+        const skippedFiles = [];
 
         for (const filename of sqlFiles) {
+            const agentJobFile = isAgentJobFile(filename);
+            if (agentJobFile && agentStatus === 'stopped') {
+                console.log(`⚠️  Skipping ${filename}: SQL Server Agent is not running, so the scheduled refresh job cannot be created`);
+                skippedFiles.push(filename);
+                continue;
+            }
+
             console.log('Executing file:', path.basename(filename));
             const success = await executeSQLFile(pool, filename);
             if (success) {
                 successCount++;
             } else {
                 failCount++;
+                if (!agentJobFile) {
+                    requiredFailCount++;
+                }
             }
         }
 
         await pool.close();
 
-        if (failCount === 0) {
-            // Run data refresh if deployment was successful
+        // The Agent job only schedules sp_refresh_all, so populate the tables whenever
+        // the core and master refresh scripts deployed, with or without the job.
+        if (requiredFailCount === 0) {
             let refreshSuccess = await runDataRefresh();
 
             if (refreshSuccess) {
@@ -301,7 +366,12 @@ async function deploy() {
         } else {
             console.log(`⚠️  DEPLOYMENT COMPLETED WITH WARNINGS (${failCount} files had errors)`);
         }
-        console.log(`📊 Files: ${successCount} successful, ${failCount} failed`);
+        console.log(`📊 Files: ${successCount} successful, ${failCount} failed, ${skippedFiles.length} skipped`);
+        if (skippedFiles.length > 0) {
+            console.log('⚠️  No SQL Server Agent job was created. Schedule EXEC oneroster12.sp_refresh_all');
+            console.log('   from another scheduler to keep the tables current');
+            console.log('   (see "Running without SQL Server Agent" in standard/README_mssql.md).');
+        }
         console.log('');
         console.log('🧪 Test deployment with:');
         console.log(`node tests/compare-database.js ${dataStandard}  # Test data parity`);

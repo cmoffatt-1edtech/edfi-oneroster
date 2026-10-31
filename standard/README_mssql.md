@@ -3,9 +3,11 @@
 This directory contains the MS SQL Server implementation of the OneRoster 1.2 API bridge for Ed-Fi ODS. It provides equivalent functionality to the PostgreSQL materialized views using tables and stored procedures.
 
 >[!WARNING]
-Make sure SQL Server Agent is enabled on your Ed-Fi ODS database server or
-Docker container. For Docker, add `MSSQL_AGENT_ENABLED=True` to the environment
-section of your Ed-Fi ODS database server's Docker Compose configuration.
+The scheduled refresh runs as a SQL Server Agent job, so enable SQL Server
+Agent on your Ed-Fi ODS database server or Docker container. For Docker, add
+`MSSQL_AGENT_ENABLED=True` to the environment section of your Ed-Fi ODS
+database server's Docker Compose configuration. Where the Agent isn't
+available, see [Running without SQL Server Agent](#running-without-sql-server-agent).
 
 ## Architecture Overview
 
@@ -52,7 +54,8 @@ directory structure.
 
 - **SQL Server 2016 or later** (required for JSON support)
 - **Ed-Fi ODS** with Data Standard 5.0 or later
-- **SQL Server Agent** service running (for automated refreshes)
+- **SQL Server Agent** service running, for the scheduled refresh job
+  (optional; see [Running without SQL Server Agent](#running-without-sql-server-agent))
 - **Database permissions** for creating schemas, tables, procedures, and jobs
 
 ## Quick Start
@@ -120,6 +123,26 @@ SELECT * FROM oneroster12.refresh_history ORDER BY refresh_start DESC;
 -- Check for errors
 SELECT * FROM oneroster12.refresh_errors ORDER BY error_date DESC;
 ```
+
+### Running without SQL Server Agent
+
+SQL Server Express (including the sample stack under `stack/mssql`, which sets
+`MSSQL_PID=Express`), Azure SQL Database, and SQL Server containers started
+without `MSSQL_AGENT_ENABLED=True` have no running SQL Server Agent.
+`deploy-mssql.js` checks for the Agent: when it isn't running, the script skips
+the Agent job script (`sql_agent.sql`, or `sql_agent_job.sql` for DS4) with a
+warning, still deploys everything else, and still populates the tables once.
+The tables then stay at that snapshot until something runs the refresh again,
+so schedule this against the ODS database from another scheduler (cron,
+Windows Task Scheduler, Azure Automation or Elastic Jobs, and so on):
+
+```sql
+EXEC oneroster12.sp_refresh_all;
+```
+
+If the deploy login lacks `VIEW SERVER STATE`, the script can't tell whether the
+Agent is running. It then tries the Agent job script, reports any failure, and
+still runs the refresh as long as the other scripts deployed.
 
 ## Data Tables
 
@@ -245,8 +268,11 @@ ORDER BY migs.avg_user_impact DESC;
 ### Common Issues
 
 1. **SQL Server Agent Not Running**
-   - Symptom: Data not refreshing automatically
-   - Solution: Start SQL Server Agent service via SQL Server Configuration Manager
+   - Symptom: Data not refreshing automatically; the deploy warned that it
+     skipped the Agent job script
+   - Solution: Start SQL Server Agent service via SQL Server Configuration
+     Manager and rerun the deploy, or schedule the refresh yourself (see
+     [Running without SQL Server Agent](#running-without-sql-server-agent))
 
 2. **Permission Errors**
    - Symptom: Cannot create objects or refresh data
