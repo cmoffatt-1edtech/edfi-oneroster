@@ -81,6 +81,28 @@ describe('resolveSourceTables', () => {
   test('refuses an object it cannot tie to a versioned resource', () => {
     expect(() => resolveSourceTables(['edfi.SomethingElse'], catalog)).toThrow("can't track its changes");
   });
+
+  test('assessment rostering: collections restamp their own resource, never a longer or shorter namesake', () => {
+    const assessmentCatalog = {
+      versioned: new Set([
+        'edfi.Assessment', 'edfi.AssessmentAdministration', 'edfi.AssessmentAdministrationParticipation',
+        'edfi.StudentAssessmentRegistration', 'edfi.StudentSchoolAssociation', 'dms.Descriptor'
+      ]),
+      columns: new Map([
+        ['edfi.AssessmentAcademicSubject', new Set(['Assessment_DocumentId'])],
+        ['edfi.AssessmentAssessedGradeLevel', new Set(['Assessment_DocumentId'])],
+        ['edfi.AssessmentAdministrationPeriod', new Set(['AssessmentAdministration_DocumentId'])]
+      ]),
+      tracked: new Set(['tracked_changes_edfi.Assessment', 'tracked_changes_edfi.AssessmentAdministrationParticipation'])
+    };
+    expect(resolveSourceTables(['edfi.Assessment', 'edfi.AssessmentAcademicSubject', 'edfi.AssessmentAssessedGradeLevel'], assessmentCatalog))
+      .toEqual({ resources: ['edfi.Assessment'], deletes: ['tracked_changes_edfi.Assessment'] });
+    expect(resolveSourceTables(['edfi.AssessmentAdministrationPeriod', 'edfi.AssessmentAdministrationParticipation'], assessmentCatalog))
+      .toEqual({
+        resources: ['edfi.AssessmentAdministration', 'edfi.AssessmentAdministrationParticipation'],
+        deletes: ['tracked_changes_edfi.AssessmentAdministrationParticipation']
+      });
+  });
 });
 
 describe('buildRefreshTrackingSql', () => {
@@ -103,19 +125,23 @@ describe('buildRefreshTrackingSql', () => {
 });
 
 // The artifact sets as committed: what deploy-dms.js will find and need
+// The third value: whether the set has the assessment rostering views yet
+const ROSTER_PROJECTIONS = ['academicsessions', 'classes', 'courses', 'demographics', 'enrollments', 'orgs', 'users'];
+const ASSESSMENT_PROJECTIONS = ['assessmentauthorgs', 'assessmentenrollments', 'assessmentofferings', 'assessments'];
+
 describe.each([
-  ['5.2.0', 'dms-pgsql', ENGINES.postgres],
-  ['5.2.0', 'dms-mssql', ENGINES.mssql],
-  ['6.1.0', 'dms-pgsql', ENGINES.postgres],
-  ['6.1.0', 'dms-mssql', ENGINES.mssql]
-])('standard/%s/artifacts/%s', (version, directory, engine) => {
+  ['5.2.0', 'dms-pgsql', ENGINES.postgres, true],
+  ['5.2.0', 'dms-mssql', ENGINES.mssql, false],
+  ['6.1.0', 'dms-pgsql', ENGINES.postgres, false],
+  ['6.1.0', 'dms-mssql', ENGINES.mssql, false]
+])('standard/%s/artifacts/%s', (version, directory, engine, assessment) => {
   const dir = path.join(STANDARD, version, 'artifacts', directory);
   const files = [...listArtifactFiles(dir), ...listOrchestrationFiles(dir)];
   const texts = files.map(file => fs.readFileSync(file, 'utf8'));
 
-  test('creates the seven projections', () => {
+  test('creates the seven rostering projections, and the assessment rostering ones where it has them', () => {
     const projections = texts.flatMap(text => findProjections(text, engine.projectionPattern)).filter(name => !name.startsWith('refresh_'));
-    expect(projections.sort()).toEqual(['academicsessions', 'classes', 'courses', 'demographics', 'enrollments', 'orgs', 'users']);
+    expect(projections.sort()).toEqual([...ROSTER_PROJECTIONS, ...(assessment ? ASSESSMENT_PROJECTIONS : [])].sort());
   });
 
   test('has a name map for its engine covering every placeholder', () => {
