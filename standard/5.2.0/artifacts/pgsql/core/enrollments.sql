@@ -63,8 +63,8 @@ staff_enrollments_formatted as (
         -- oneroster12/ClassroomPositionDescriptor crosswalk (e.g. 'Teacher of Record' => TRUE).
         -- Unmapped or missing positions default to 'false'.
         lower(coalesce(mappedclassroomposition.mappedvalue, 'FALSE')) as "primary",
-        ssa.beginDate::text as "beginDate",
-        ssa.endDate::text as "endDate",
+        to_char(ssa.beginDate, 'YYYY-MM-DD') as "beginDate",
+        to_char(ssa.endDate, 'YYYY-MM-DD') as "endDate",
         json_build_object(
             'edfi', json_build_object(
                 'resource', 'staffSectionAssociations',
@@ -138,8 +138,8 @@ student_enrollments_formatted as (
         ssa.studentusi as "participantUSI",
         'student' as "role",
         'false' as "primary",
-        ssa.beginDate::text as "beginDate",
-        ssa.endDate::text as "endDate",
+        to_char(ssa.beginDate, 'YYYY-MM-DD') as "beginDate",
+        to_char(ssa.endDate, 'YYYY-MM-DD') as "endDate",
         json_build_object(
             'edfi', json_build_object(
                 'resource', 'studentSectionAssociations',

@@ -64,8 +64,8 @@ create_school_year as (
         max(ses.lastmodifieddate) as "dateLastModified",
         concat(ssy.schoolyear - 1, '-', ssy.schoolyear) as "title",
         'schoolYear' as "type",
-        ssy.first_school_day::date::text as "startDate",
-        ssy.last_school_day::date::text as "endDate",
+        to_char(ssy.first_school_day::date, 'YYYY-MM-DD') as "startDate",
+        to_char(ssy.last_school_day::date, 'YYYY-MM-DD') as "endDate",
         null::json as "parent",
         -- need to include `children` here?
         ssy.schoolyear::text as "schoolYear",
@@ -96,8 +96,8 @@ sessions_formatted as (
         sessions.lastmodifieddate as "dateLastModified",
         termdescriptor.codeValue as "title",
         mappedtermdescriptor.mappedvalue as "type",
-        begindate::date::text as "startDate",
-        enddate::date::text as "endDate",
+        to_char(begindate::date, 'YYYY-MM-DD') as "startDate",
+        to_char(enddate::date, 'YYYY-MM-DD') as "endDate",
         json_build_object(
             'href', concat('/academicSessions/', md5(concat(sessions.localEducationAgencyid::varchar, '-', schoolyear::text))),
             'sourcedId', md5(concat(sessions.localEducationAgencyid::varchar, '-', schoolyear::text)),
