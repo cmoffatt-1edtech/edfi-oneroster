@@ -4,6 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { getDefaultDatabaseService } from '../../services/database/DatabaseServiceFactory.js';
+import { ASSESSMENT_ENDPOINTS, ASSESSMENT_ENDPOINT_NAMES } from '../../config/assessment-rostering.js';
 import { getLogger } from '../../utils/logger.js';
 
 const logger = getLogger('OneRosterController');
@@ -20,6 +21,8 @@ const CLIENT_ERROR_CODES = new Set(['AUTH_FILTER_MISSING', 'FILTER_VALIDATION_ER
 // (only needed where they differ)
 const collectionNames = {
     academicsessions: 'academicSessions',
+    assessmentofferings: 'assessmentOfferings',
+    assessmentenrollments: 'assessmentEnrollments',
 };
 
 function getCollectionName(endpoint) {
@@ -86,8 +89,61 @@ const configs = {
             'preferredFirstName', 'preferredMiddleName', 'preferredLastName', 'pronouns',
             'roles', 'userProfiles', 'identifier', 'email', 'sms', 'phone',
             'agentSourceIds', 'grades', 'password', 'metadata']
+    },
+    // Assessment rostering (src/config/assessment-rostering.js). Hidden columns the
+    // authorization filters and sub-collections read are deliberately not selectable.
+    assessments: {
+        defaultSortField: '',
+        allowedFilterFields: ['sourcedId', 'status', 'dateLastModified', 'title', 'identifier',
+            'category'],
+        selectableFields: ['sourcedId', 'status', 'dateLastModified', 'title', 'identifier',
+            'version', 'category', 'subjects', 'grades', 'org', 'course', 'metadata']
+    },
+    assessmentofferings: {
+        defaultSortField: '',
+        allowedFilterFields: ['sourcedId', 'status', 'dateLastModified', 'title'],
+        selectableFields: ['sourcedId', 'status', 'dateLastModified', 'title', 'assessment', 'org',
+            'testingWindows', 'class', 'academicSession', 'metadata']
+    },
+    assessmentenrollments: {
+        defaultSortField: '',
+        allowedFilterFields: ['sourcedId', 'status', 'dateLastModified', 'role'],
+        selectableFields: ['sourcedId', 'status', 'dateLastModified', 'user', 'assessmentOffering',
+            'school', 'role', 'beginDate', 'endDate', 'metadata']
     }
 };
+
+// Hidden columns that link a sub-collection's rows to their parent
+const parentColumns = {
+    assessmentofferings: 'assessmentSourcedId',
+    assessmentenrollments: 'assessmentOfferingSourcedId'
+};
+
+/**
+ * Whether a query failed because a oneroster12 view doesn't exist: PostgreSQL 42P01
+ * (undefined_table), SQL Server 208 (invalid object name).
+ */
+function isMissingViewError(error) {
+    return error?.code === '42P01' || error?.number === 208 || error?.originalError?.info?.number === 208;
+}
+
+/**
+ * An assessment rostering endpoint on a data store without the assessment views: Data Standard
+ * 4.0, which has no assessment registration data, or the views were never deployed. The service
+ * doesn't know a data store's Data Standard, so the missing view is how it finds out.
+ */
+function isAssessmentRosteringUnavailable(endpoint, error) {
+    return ASSESSMENT_ENDPOINT_NAMES.has(endpoint) && isMissingViewError(error);
+}
+
+function handleAssessmentRosteringUnavailable(res) {
+    return res.status(404).json({
+        imsx_codeMajor: 'failure',
+        imsx_severity: 'error',
+        imsx_description: 'Assessment rostering is not available for this data store.',
+        imsx_codeMinor: 'unknownobject'
+    });
+}
 
 function handleMissingAuthFilterError(res, error) {
     return res.status(403).json({
@@ -101,7 +157,7 @@ function handleMissingAuthFilterError(res, error) {
 /**
  * Handle collection endpoints (many records)
  */
-async function doOneRosterEndpointMany(req, res, endpoint, config, extraWhere = null) {
+async function doOneRosterEndpointMany(req, res, endpoint, config, extraWhere = null, parent = null) {
 
     if (!req.odsInstanceId) {
         const routeValues = Object.entries(req.params || {}).map(([k, v]) => `${k}=${v}`).join(', ');
@@ -119,6 +175,19 @@ async function doOneRosterEndpointMany(req, res, endpoint, config, extraWhere = 
         // Get education organization IDs from token for authorization filtering
         const educationOrgIds = req.educationOrgIds || [];
 
+        // A sub-collection answers 404 when its parent doesn't exist or isn't visible to the
+        // caller, like the parent's own single-record endpoint
+        if (parent) {
+            const parentRecord = await dbService.queryOne(parent.endpoint, parent.id, null, educationOrgIds, ['sourcedId']);
+            if (!parentRecord) {
+                return res.status(404).json({
+                    imsx_codeMajor: 'failure',
+                    imsx_severity: 'error',
+                    imsx_description: `Resource not found: ${parent.endpoint}/${parent.id}`
+                });
+            }
+        }
+
         // Execute query using Knex.js service with authorization
         const results = await dbService.queryMany(endpoint, config, req.query, extraWhere, educationOrgIds);
 
@@ -126,8 +195,13 @@ async function doOneRosterEndpointMany(req, res, endpoint, config, extraWhere = 
         res.json({ [getCollectionName(endpoint)]: results });
 
     } catch (error) {
-        const logLevel = CLIENT_ERROR_CODES.has(error.code) ? 'warn' : 'error';
+        const unavailable = isAssessmentRosteringUnavailable(endpoint, error);
+        const logLevel = CLIENT_ERROR_CODES.has(error.code) || unavailable ? 'warn' : 'error';
         logger[logLevel]({ endpoint, err: error }, `Error in ${endpoint} many`);
+
+        if (unavailable) {
+            return handleAssessmentRosteringUnavailable(res);
+        }
 
         if (error.code === 'AUTH_FILTER_MISSING') {
             return handleMissingAuthFilterError(res, error);
@@ -201,8 +275,13 @@ async function doOneRosterEndpointOne(req, res, endpoint, config, extraWhere = n
         res.json({ [getWrapper(endpoint)]: result });
 
     } catch (error) {
-        const logLevel = CLIENT_ERROR_CODES.has(error.code) ? 'warn' : 'error';
+        const unavailable = isAssessmentRosteringUnavailable(endpoint, error);
+        const logLevel = CLIENT_ERROR_CODES.has(error.code) || unavailable ? 'warn' : 'error';
         logger[logLevel]({ endpoint, err: error }, `Error in ${endpoint} one`);
+
+        if (unavailable) {
+            return handleAssessmentRosteringUnavailable(res);
+        }
 
         if (error.code === 'AUTH_FILTER_MISSING') {
             return handleMissingAuthFilterError(res, error);
@@ -228,6 +307,9 @@ function getWrapper(word) {
     if (word=='school') return 'org';
     if (word=='student') return 'user';
     if (word=='teacher') return 'user';
+    if (word=='assessments') return 'assessment';
+    if (word=='assessmentofferings') return 'assessmentOffering';
+    if (word=='assessmentenrollments') return 'assessmentEnrollment';
     const endings = { ies: 'y', es: 'e', s: '' };
     return word.replace(
         new RegExp(`(${Object.keys(endings).join('|')})$`),
@@ -262,3 +344,25 @@ export const schoolsOne = async (req, res) => doOneRosterEndpointOne(req, res, '
 export const usersOne = async (req, res) => doOneRosterEndpointOne(req, res, 'users', configs.users);
 export const studentsOne = async (req, res) => doOneRosterEndpointOne(req, res, 'users', configs.users, "role='student'");
 export const teachersOne = async (req, res) => doOneRosterEndpointOne(req, res, 'users', configs.users, "role='teacher'");
+
+// Assessment rostering (mounted only when ASSESSMENT_ROSTERING_ENABLED is true)
+const { assessments: ASSESSMENTS, assessmentOfferings: OFFERINGS, assessmentEnrollments: ENROLLMENTS } = ASSESSMENT_ENDPOINTS;
+
+/**
+ * A sub-collection: the child rows whose hidden parent column holds the parent's sourcedId.
+ * The value is bound, never interpolated into SQL.
+ */
+function doAssessmentSubCollection(req, res, parentEndpoint, endpoint) {
+    const id = req.params.id;
+    return doOneRosterEndpointMany(req, res, endpoint, configs[endpoint], { [parentColumns[endpoint]]: id },
+        { endpoint: parentEndpoint, id });
+}
+
+export const assessments = async (req, res) => doOneRosterEndpointMany(req, res, ASSESSMENTS, configs[ASSESSMENTS]);
+export const assessmentOfferings = async (req, res) => doOneRosterEndpointMany(req, res, OFFERINGS, configs[OFFERINGS]);
+export const assessmentEnrollments = async (req, res) => doOneRosterEndpointMany(req, res, ENROLLMENTS, configs[ENROLLMENTS]);
+export const assessmentsOne = async (req, res) => doOneRosterEndpointOne(req, res, ASSESSMENTS, configs[ASSESSMENTS]);
+export const assessmentOfferingsOne = async (req, res) => doOneRosterEndpointOne(req, res, OFFERINGS, configs[OFFERINGS]);
+export const assessmentEnrollmentsOne = async (req, res) => doOneRosterEndpointOne(req, res, ENROLLMENTS, configs[ENROLLMENTS]);
+export const assessmentOfferingsForAssessment = async (req, res) => doAssessmentSubCollection(req, res, ASSESSMENTS, OFFERINGS);
+export const assessmentEnrollmentsForOffering = async (req, res) => doAssessmentSubCollection(req, res, OFFERINGS, ENROLLMENTS);

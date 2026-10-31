@@ -19,11 +19,12 @@ import { buildRoutePattern } from './config/ods-context-config.js';
 import { getRouteContextConfig } from './config/route-context-config.js';
 import { isSwaggerUiEnabled, isSwaggerUiConfigured, isOpenApiMetadataEnabled } from './config/api-docs.js';
 import oneRosterRoutes from './routes/oneRoster.js';
+import assessmentRosteringRoutes from './routes/assessmentRostering.js';
+import { isAssessmentRosteringEnabled } from './config/assessment-rostering.js';
+import { loadSwaggerDocument } from './config/swagger-document.js';
 import discoveryRoutes from './routes/discovery.js';
 import rateLimit from 'express-rate-limit';
 import healthRoutes from './routes/health.js';
-import YAML from 'yaml';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { createRequire } from 'module';
@@ -73,8 +74,13 @@ const tokenUrl = dmsPlatform
   ? getDmsTokenUrl()
   : joinUrl(process.env.OAUTH2_ISSUERBASEURL, 'oauth/token');
 
-const file = fs.readFileSync('./config/swagger.yml', 'utf8');
-const swaggerDocument = YAML.parse(file.replace("{OAUTH_TOKEN_URL}", tokenUrl));
+const assessmentRosteringEnabled = isAssessmentRosteringEnabled();
+if (assessmentRosteringEnabled) {
+  logger.info('Assessment rostering is enabled (ASSESSMENT_ROSTERING_ENABLED=true)');
+}
+
+// config/swagger.yml, plus the assessment rostering paths when that service is enabled
+const swaggerDocument = loadSwaggerDocument(tokenUrl, { assessmentRostering: assessmentRosteringEnabled });
 
 // Require OAuth configuration for all environments.
 let jwtCheck = (req, res, next) => { next(); };
@@ -250,7 +256,9 @@ const oneRosterPath = routePrefix ? `${routePrefix}/ims/oneroster` : '/ims/onero
 const resolveDataStore = dmsPlatform
   ? [createDmsDataStoreMiddleware({ provider: getDataStoreProvider(), multiTenancyEnabled, routeContext: contextConfig })]
   : [extractTenantMiddleware, validateOdsInstanceFlow];
-app.use(oneRosterPath, limiter, jwtCheck, ...resolveDataStore, oneRosterRoutes);
+// Assessment rostering goes ahead of the rostering router, whose catch-all answers 404
+const optionalRoutes = assessmentRosteringEnabled ? [assessmentRosteringRoutes] : [];
+app.use(oneRosterPath, limiter, jwtCheck, ...resolveDataStore, ...optionalRoutes, oneRosterRoutes);
 
 // Handle auth errors:
 app.use((err, req, res, next) => {

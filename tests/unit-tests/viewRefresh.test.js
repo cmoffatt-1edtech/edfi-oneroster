@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { refreshView } from '../../src/services/viewRefresh.js';
+import { refreshView, matviewExists } from '../../src/services/viewRefresh.js';
 
 /**
  * A knex stand-in that answers the queries refreshView makes and records the statements it runs.
@@ -104,5 +104,22 @@ describe('refreshView', () => {
 
   test('rejects a view name that is not a plain identifier', async () => {
     await expect(refreshView(fakeKnex(), 'users; drop table x')).rejects.toThrow('Invalid view name');
+  });
+});
+
+describe('matviewExists', () => {
+  test('asks pg_matviews for the oneroster12 view, with the name bound', async () => {
+    const calls = [];
+    const knex = { raw: async (sql, bindings) => { calls.push({ sql, bindings }); return { rows: [{ '?column?': 1 }] }; } };
+
+    await expect(matviewExists(knex, 'assessments')).resolves.toBe(true);
+    expect(calls).toEqual([{
+      sql: "SELECT 1 FROM pg_matviews WHERE schemaname = 'oneroster12' AND matviewname = ?",
+      bindings: ['assessments']
+    }]);
+  });
+
+  test('is false when the view is not deployed', async () => {
+    await expect(matviewExists({ raw: async () => ({ rows: [] }) }, 'assessments')).resolves.toBe(false);
   });
 });

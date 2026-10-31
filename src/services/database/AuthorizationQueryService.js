@@ -5,6 +5,7 @@
 
 import { getLogger } from '../../utils/logger.js';
 import { ODS_AUTH_OBJECT_MAP } from '../../platform/auth-object-map.js';
+import { ASSESSMENT_ENDPOINTS, ASSESSMENT_AUTH_ORGS_VIEW } from '../../config/assessment-rostering.js';
 
 /**
  * Authorization Query Service
@@ -22,7 +23,8 @@ const AUTH_ENDPOINTS = {
   courses: 'courses',
   enrollments: 'enrollments',
   demographics: 'demographics',
-  academicSessions: 'academicsessions'
+  academicSessions: 'academicsessions',
+  ...ASSESSMENT_ENDPOINTS
 };
 
 // Membership set for the full-access short circuit, so an unrecognised endpoint can never
@@ -214,6 +216,38 @@ class AuthorizationQueryService {
   }
 
   /**
+   * Build a subquery for the education organizations above the caller's: the sources of
+   * hierarchy rows whose target is a claimed ed-org (the RelationshipsWithEdOrgsOnlyInverted
+   * direction). The hierarchy table holds self rows, so the claimed ed-orgs are included.
+   * @param {Array<string>} educationOrganizationIds - Claimed education organization IDs
+   * @returns {Object} Knex subquery selecting ancestor org IDs
+   */
+  buildAncestorOrgIdsQuery(educationOrganizationIds) {
+    return this.knex
+      .withSchema(this.authSchema)
+      .select(this.authObjects.columns.sourceOrgId)
+      .from(this.authObjects.tables.orgToOrg)
+      .whereIn(this.authObjects.columns.targetOrgId, educationOrganizationIds);
+  }
+
+  /**
+   * Build a subquery for every education organization above or below the caller's
+   * (Reach = Down ∪ Up). Used where data owned higher up, such as a district-assigned
+   * assessment administration, must be visible to the schools that take part in it.
+   * @param {Array<string>} educationOrganizationIds - Claimed education organization IDs
+   * @returns {Object|null} Knex subquery selecting org IDs, or null if input is empty
+   */
+  buildReachableOrgIdsQuery(educationOrganizationIds) {
+    const accessibleOrgIds = this.buildAccessibleOrgIdsQuery(educationOrganizationIds);
+
+    if (!accessibleOrgIds) {
+      return null;
+    }
+
+    return accessibleOrgIds.union(this.buildAncestorOrgIdsQuery(educationOrganizationIds));
+  }
+
+  /**
    * Build authorization filter for organizations
    * Returns SQL WHERE clause to filter orgs table
    */
@@ -318,12 +352,7 @@ class AuthorizationQueryService {
     * allowing schools to read district-level course records while preventing access
     * to data owned by other schools or districts.
     */
-    const courseSourceOrgQuery = () =>
-      this.knex
-        .withSchema(this.authSchema)
-        .select(this.authObjects.columns.sourceOrgId)
-        .from(this.authObjects.tables.orgToOrg)
-        .whereIn(this.authObjects.columns.targetOrgId, educationOrganizationIds);
+    const courseSourceOrgQuery = () => this.buildAncestorOrgIdsQuery(educationOrganizationIds);
 
     return {
       apply: query =>
@@ -428,12 +457,7 @@ class AuthorizationQueryService {
     * The parent EducationOrganizationId is derived from the authorized
     * EducationOrganizationId so schools can read district-level school year records
     */
-    const schoolYearSourceOrgQuery = () =>
-      this.knex
-        .withSchema(this.authSchema)
-        .select(this.authObjects.columns.sourceOrgId)
-        .from(this.authObjects.tables.orgToOrg)
-        .whereIn(this.authObjects.columns.targetOrgId, educationOrganizationIds);
+    const schoolYearSourceOrgQuery = () => this.buildAncestorOrgIdsQuery(educationOrganizationIds);
 
     return {
       apply: query =>
@@ -453,6 +477,106 @@ class AuthorizationQueryService {
                     .orWhereIn('academicsessions.educationOrganizationId', accessibleOrgIds);
                 });
             });
+        })
+    };
+  }
+
+  /**
+   * Build authorization filter for assessment enrollments (Ed-Fi StudentAssessmentRegistration)
+   *
+   * The student branch of the enrollments filter: the registration's school is at or below a
+   * claimed ed-org, and the student is related to one. The testing and reporting organizations
+   * on a registration never widen access, so a testing vendor's ed-org can't see a district's
+   * students. educationOrganizationId is the school of the registration's StudentSchoolAssociation.
+   */
+  async buildAssessmentEnrollmentAuthorizationFilter(educationOrganizationIds) {
+    const accessibleOrgIds = this.buildAccessibleOrgIdsQuery(educationOrganizationIds);
+
+    if (!accessibleOrgIds) {
+      return null;
+    }
+
+    const studentAuthQuery = () =>
+      this.knex
+        .withSchema(this.authSchema)
+        .select(this.authObjects.columns.student)
+        .from(this.authObjects.tables.orgToStudent)
+        .whereIn(this.authObjects.columns.sourceOrgId, educationOrganizationIds);
+
+    const table = ASSESSMENT_ENDPOINTS.assessmentEnrollments;
+
+    return {
+      apply: query =>
+        query
+          .whereIn(`${table}.educationOrganizationId`, accessibleOrgIds)
+          .whereIn(`${table}.${this.authObjects.projectionColumns.participant}`, studentAuthQuery())
+    };
+  }
+
+  /**
+   * Build a subquery for the assessments or offerings with an organization in the caller's
+   * reach, read from the assessmentauthorgs helper view
+   * @param {string} keyColumn - assessmentSourcedId or assessmentOfferingSourcedId
+   */
+  buildAssessmentAuthOrgsQuery(keyColumn, educationOrganizationIds) {
+    return this.knex
+      .withSchema(this.schema)
+      .select(keyColumn)
+      .from(ASSESSMENT_AUTH_ORGS_VIEW)
+      .whereNotNull(keyColumn)
+      .whereIn('educationOrganizationId', this.buildReachableOrgIdsQuery(educationOrganizationIds));
+  }
+
+  /**
+   * Build authorization filter for assessment offerings (Ed-Fi AssessmentAdministration)
+   *
+   * Visible when any of the offering's organizations is above or below a claimed ed-org: the
+   * assigning organization, every participating organization, and every school with a
+   * registration on it. Up matters because a state or district usually assigns the test and
+   * the schools take it; the registration schools cover an offering assigned by an
+   * organization outside the hierarchy, so every visible enrollment's offering is visible too.
+   */
+  async buildAssessmentOfferingAuthorizationFilter(educationOrganizationIds) {
+    if (!this.buildAccessibleOrgIdsQuery(educationOrganizationIds)) {
+      return null;
+    }
+
+    const table = ASSESSMENT_ENDPOINTS.assessmentOfferings;
+
+    return {
+      apply: query =>
+        query.whereIn(
+          `${table}.sourcedId`,
+          this.buildAssessmentAuthOrgsQuery('assessmentOfferingSourcedId', educationOrganizationIds)
+        )
+    };
+  }
+
+  /**
+   * Build authorization filter for assessments (Ed-Fi Assessment)
+   *
+   * Ed-Fi authorizes assessment metadata by namespace, not by ed-org, so an assessment with no
+   * defining organization is visible to every caller. Otherwise it is visible when its defining
+   * organization, or any organization of any of its offerings, is above or below a claimed
+   * ed-org. definingEducationOrganizationId is the Ed-Fi value, kept even when the org GUIDRef
+   * is null because the organization isn't one OneRoster publishes.
+   */
+  async buildAssessmentAuthorizationFilter(educationOrganizationIds) {
+    if (!this.buildAccessibleOrgIdsQuery(educationOrganizationIds)) {
+      return null;
+    }
+
+    const table = ASSESSMENT_ENDPOINTS.assessments;
+
+    return {
+      apply: query =>
+        query.where(builder => {
+          builder
+            .whereNull(`${table}.definingEducationOrganizationId`)
+            .orWhereIn(
+              `${table}.sourcedId`,
+              this.buildAssessmentAuthOrgsQuery('assessmentSourcedId', educationOrganizationIds)
+            );
         })
     };
   }
@@ -532,6 +656,15 @@ class AuthorizationQueryService {
 
       case AUTH_ENDPOINTS.academicSessions:
         return await this.buildAcademicSessionAuthorizationFilter(educationOrganizationIds);
+
+      case AUTH_ENDPOINTS.assessments:
+        return await this.buildAssessmentAuthorizationFilter(educationOrganizationIds);
+
+      case AUTH_ENDPOINTS.assessmentOfferings:
+        return await this.buildAssessmentOfferingAuthorizationFilter(educationOrganizationIds);
+
+      case AUTH_ENDPOINTS.assessmentEnrollments:
+        return await this.buildAssessmentEnrollmentAuthorizationFilter(educationOrganizationIds);
 
       default:
         logger.warn(`No authorization filter defined for endpoint: ${endpoint}`);

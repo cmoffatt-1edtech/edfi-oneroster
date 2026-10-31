@@ -84,6 +84,15 @@ export function validateEnvironmentVariables() {
     errors.push('ENABLE_SWAGGER_UI cannot be enabled when ENABLE_OPEN_API_METADATA is false; unset ENABLE_SWAGGER_UI or set it to false');
   }
 
+  // ASSESSMENT_ROSTERING_ENABLED: If set, must be "true" or "false", matched case-insensitively.
+  // Defaults to disabled. A typo must abort startup rather than silently leave the service off.
+  if (process.env.ASSESSMENT_ROSTERING_ENABLED) {
+    const value = process.env.ASSESSMENT_ROSTERING_ENABLED.trim().toLowerCase();
+    if (value !== 'true' && value !== 'false') {
+      errors.push('ASSESSMENT_ROSTERING_ENABLED must be either "true" or "false" if set');
+    }
+  }
+
   // DB_TYPE must be either mssql or postgres
   if (!process.env.DB_TYPE) {
     errors.push('DB_TYPE must not be empty');

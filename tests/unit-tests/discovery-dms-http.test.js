@@ -78,6 +78,15 @@ describe('discovery on Ed-Fi API v8 (DMS), over HTTP', () => {
     expect(body.urls.oauth).toBe(`${dmsExampleEnv.OAUTH2_ISSUER}/connect/token`);
   });
 
+  test('advertises assessment rostering after dataManagementApi when it is enabled', async () => {
+    process.env.ASSESSMENT_ROSTERING_ENABLED = 'true';
+    process.env.ROUTE_QUALIFIER_SEGMENTS = 'districtId';
+    const { body } = await get('/255901');
+
+    expect(body.urls.assessmentRosteringApi).toBe(`${BASE}/255901/ims/oneroster/assessmentRostering/v1p0/`);
+    expect(Object.keys(body.urls).at(-1)).toBe('assessmentRosteringApi');
+  });
+
   describe('with route qualifiers districtId,schoolYear', () => {
     beforeEach(() => {
       process.env.ROUTE_QUALIFIER_SEGMENTS = 'districtId,schoolYear';
