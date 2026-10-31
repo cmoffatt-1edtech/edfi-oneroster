@@ -156,7 +156,8 @@ describe('assessment rostering routes', () => {
     test.each([
       ['PostgreSQL', Object.assign(new Error('relation "oneroster12.assessments" does not exist'), { code: '42P01' })],
       ['SQL Server', Object.assign(new Error("Invalid object name 'oneroster12.assessments'."), { number: 208 })],
-      ['SQL Server (wrapped)', Object.assign(new Error('Invalid object name'), { originalError: { info: { number: 208 } } })]
+      ['SQL Server (wrapped)', Object.assign(new Error('request failed'),
+        { originalError: { info: { number: 208, message: "Invalid object name 'oneroster12.assessmentauthorgs'." } } })]
     ])('%s: collections and single records answer the not-available 404', async (engine, error) => {
       mockQueryMany.mockRejectedValue(error);
       mockQueryOne.mockRejectedValue(error);
@@ -174,11 +175,26 @@ describe('assessment rostering routes', () => {
     });
 
     test('a sub-collection whose parent view is missing answers the same 404', async () => {
-      mockQueryOne.mockRejectedValue(Object.assign(new Error('missing'), { code: '42P01' }));
+      mockQueryOne.mockRejectedValue(Object.assign(new Error('relation "oneroster12.assessmentofferings" does not exist'), { code: '42P01' }));
       const { status, body } = await get(`${BASE}/assessmentOfferings/x/assessmentEnrollments`);
 
       expect(status).toBe(404);
       expect(body.imsx_description).toBe('Assessment rostering is not available for this data store.');
+    });
+
+    // The SQL knex puts in front of the message names the view too, but quoted part by part
+    test.each([
+      ['PostgreSQL', Object.assign(new Error('select * from "oneroster12"."assessments" where "educationOrganizationId" in '
+        + '(select "targeteducationorganizationid" from "auth"."educationorganizationidtoeducationorganizationid") - '
+        + 'relation "auth.educationorganizationidtoeducationorganizationid" does not exist'), { code: '42P01' })],
+      ['SQL Server', Object.assign(new Error('select * from [oneroster12].[assessments] - '
+        + "Invalid object name 'auth.educationorganizationidtoeducationorganizationid'."), { number: 208 })]
+    ])('%s: a missing auth table on an assessment endpoint stays a 500', async (engine, error) => {
+      mockQueryMany.mockRejectedValue(error);
+      const { status, body } = await get(`${BASE}/assessments`);
+
+      expect(status).toBe(500);
+      expect(body.imsx_description).toBe('An internal server error occurred');
     });
 
     test('other database errors stay a 500 without detail', async () => {

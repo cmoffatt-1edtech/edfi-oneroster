@@ -32,7 +32,7 @@ grades as (
     -- Grade level code values, as users.grades
     select
         g."Assessment_DocumentId" as documentid,
-        json_agg(d."CodeValue" order by d."CodeValue") as grades
+        json_agg(d."CodeValue" order by d."CodeValue" collate "C") as grades
     from edfi."AssessmentAssessedGradeLevel" g
         join dms."Descriptor" d
             on d."DescriptorId" = g."GradeLevelDescriptor_DescriptorId"

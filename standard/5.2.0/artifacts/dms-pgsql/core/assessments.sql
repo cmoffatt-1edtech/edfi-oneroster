@@ -22,7 +22,7 @@ with assessment as (
 subjects as (
     select
         s."Assessment_DocumentId" as documentid,
-        json_agg(d."CodeValue" order by d."CodeValue") as subjects
+        json_agg(d."CodeValue" order by d."CodeValue" collate "C") as subjects
     from edfi."AssessmentAcademicSubject" s
         join dms."Descriptor" d
             on d."DescriptorId" = s."AcademicSubjectDescriptor_DescriptorId"
@@ -32,7 +32,7 @@ grades as (
     -- Grade level code values, as users.grades
     select
         g."Assessment_DocumentId" as documentid,
-        json_agg(d."CodeValue" order by d."CodeValue") as grades
+        json_agg(d."CodeValue" order by d."CodeValue" collate "C") as grades
     from edfi."AssessmentAssessedGradeLevel" g
         join dms."Descriptor" d
             on d."DescriptorId" = g."GradeLevelDescriptor_DescriptorId"

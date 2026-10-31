@@ -71,7 +71,11 @@ BEGIN
             ('assessmentofferings'), -- 9.
             ('assessmentenrollments'), -- 10.
             ('assessmentauthorgs') -- 11. Read by the assessments and offerings authorization filters
-    ) AS refresh_order(table_name);
+    ) AS refresh_order(table_name)
+    -- The assessment rostering procedures may not be deployed (a manual deploy of the rostering files
+    -- only); skip those rather than fail. A missing rostering procedure still fails.
+    WHERE refresh_order.table_name NOT LIKE 'assessment%'
+       OR OBJECT_ID('oneroster12.sp_refresh_' + refresh_order.table_name, 'P') IS NOT NULL;
 
     OPEN refresh_cursor;
     FETCH NEXT FROM refresh_cursor INTO @CurrentTable;
@@ -192,15 +196,17 @@ BEGIN
     PRINT '';
     PRINT '=== Current Row Counts ===';
 
-    DECLARE @RowCountQuery NVARCHAR(MAX) = '';
-    SELECT @RowCountQuery = @RowCountQuery +
-        'SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name +
-        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 11 THEN ' UNION ALL ' ELSE '' END
+    -- STRING_AGG, not concatenation into the variable, whose row order SQL Server doesn't guarantee
+    DECLARE @RowCountQuery NVARCHAR(MAX);
+    SELECT @RowCountQuery = STRING_AGG(
+        CAST('SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name AS NVARCHAR(MAX)),
+        ' UNION ALL ') WITHIN GROUP (ORDER BY table_name)
     FROM (VALUES
         ('academicsessions'), ('classes'), ('courses'), ('demographics'),
         ('enrollments'), ('orgs'), ('users'),
         ('assessments'), ('assessmentofferings'), ('assessmentenrollments'), ('assessmentauthorgs')
-    ) AS tables(table_name);
+    ) AS tables(table_name)
+    WHERE OBJECT_ID('oneroster12.' + table_name, 'U') IS NOT NULL;
 
     EXEC sp_executesql @RowCountQuery;
 
@@ -262,15 +268,17 @@ BEGIN
     PRINT '';
     PRINT '=== Current Row Counts ===';
 
-    DECLARE @RowCountQuery NVARCHAR(MAX) = '';
-    SELECT @RowCountQuery = @RowCountQuery +
-        'SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name +
-        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 11 THEN ' UNION ALL ' ELSE '' END
+    -- STRING_AGG, not concatenation into the variable, whose row order SQL Server doesn't guarantee
+    DECLARE @RowCountQuery NVARCHAR(MAX);
+    SELECT @RowCountQuery = STRING_AGG(
+        CAST('SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name AS NVARCHAR(MAX)),
+        ' UNION ALL ') WITHIN GROUP (ORDER BY table_name)
     FROM (VALUES
         ('academicsessions'), ('classes'), ('courses'), ('demographics'),
         ('enrollments'), ('orgs'), ('users'),
         ('assessments'), ('assessmentofferings'), ('assessmentenrollments'), ('assessmentauthorgs')
-    ) AS tables(table_name);
+    ) AS tables(table_name)
+    WHERE OBJECT_ID('oneroster12.' + table_name, 'U') IS NOT NULL;
 
     EXEC sp_executesql @RowCountQuery;
 END

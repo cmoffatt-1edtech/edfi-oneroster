@@ -8,12 +8,14 @@ base path and the resource shapes are provisional. This page is what an engineer
 
 - `ASSESSMENT_ROSTERING_ENABLED=true` mounts the routes, adds the service to `/swagger.json`
   (`config/swagger-assessment-rostering.yml`) and to discovery (`urls.assessmentRosteringApi`), and
-  adds the views to the PostgreSQL refresh jobs. Off by default; off, the service is unchanged.
+  adds the views to the PostgreSQL refresh jobs. Off by default; off, the service is unchanged, and
+  startup removes any refresh schedules for the views that an earlier run left in pg-boss.
 - Base path: `/ims/oneroster/assessmentRostering/v1p0/`, one constant in
   `src/config/assessment-rostering.js`.
 - Scopes: `roster.readonly` or `roster-core.readonly`, as for core rostering.
 - A data store without the views (Data Standard 4.0, or not deployed) answers 404 "Assessment
-  rostering is not available for this data store." on these endpoints only.
+  rostering is not available for this data store." on these endpoints only. The database error has to
+  name a `oneroster12` assessment view; any other missing object, such as an `auth` table, stays a 500.
 
 ## Resources
 
@@ -66,7 +68,8 @@ Each data store gets three views plus a helper, in every artifact set that has a
 Rules every artifact set follows:
 - No view reads another, so the drop-and-recreate deploy and the refresh order don't matter.
 - `subjects`, `grades` and `testingWindows` are always arrays, `[]` when empty, in a fixed order
-  (code value; start date, then end date with nulls last). A testing window is `{startDate, endDate}`,
+  (code value by code point, `COLLATE "C"` / `Latin1_General_100_BIN2`, so locale and engine don't
+  change it; start date, then end date with nulls last). A testing window is `{startDate, endDate}`,
   with `endDate` null when open-ended. Windows are never merged.
 - An org reference (`assessment.org`, `assessmentOffering.org`, the participating, testing and
   reporting orgs in metadata) is a GUIDRef only when the organization is a school, district or state,
@@ -86,8 +89,11 @@ Rules every artifact set follows:
 
 New resources: `md5` of the natural-key parts joined with `|`, each string part lower-cased and then
 escaped (`\` to `\\`, `|` to `\|`), so that no two keys produce the same input. Numbers are written as
-they are. Both engines hash the UTF-8 bytes, so a non-ASCII key gets the same id on PostgreSQL and SQL
-Server (the rostering views on SQL Server hash `VARCHAR`, which differs for non-ASCII keys).
+they are. Both engines hash the UTF-8 bytes, so a non-ASCII key such as `Ñ` gets the same id on
+PostgreSQL and SQL Server (the rostering views on SQL Server hash `VARCHAR`, which differs for non-ASCII
+keys). Lower-casing itself isn't the same everywhere: `İ` becomes `i` on the local PostgreSQL databases and on
+SQL Server 2022, but `i̇` in JavaScript, so the fixture's reference `k()` (and possibly a PostgreSQL
+database on the ICU provider) gives a different id for such a key. Keys are normally ASCII.
 
 | Resource | Key | Grand Bend example |
 | --- | --- | --- |
@@ -97,14 +103,21 @@ Server (the rostering views on SQL Server hash `VARCHAR`, which differs for non-
 
 References to users and orgs keep the existing formulas: `md5('STU-' + studentUniqueId + '-' +
 schoolId)` and `md5(educationOrganizationId)`. Lower-casing means two keys that differ only in case
-share an id; the parity tools check ids are unique per view.
+share an id; the parity tools check ids are unique per view. A store with case-sensitive keys (ODS
+PostgreSQL) can hold both records, for example administrations `Retest` and `RETEST` of one assessment.
+They then share one id, the authorization filters (keyed on `sourcedId`) merge their organizations, so a
+caller who can see one sees both, and `GET /assessmentOfferings/<id>` returns either. Ed-Fi's SQL Server ODS is
+case-insensitive, so it can't hold both; if DMS on SQL Server can (not checked), the primary key on
+`sourcedId` makes that table's refresh fail instead.
 
 ## Authorization
 
 Same mechanism as the rostering endpoints (`AuthorizationQueryService`): the caller's ed-org claims,
-the Ed-Fi `auth` hierarchy, and the hidden columns. The three endpoints are in `AUTH_ENDPOINTS`, so a
-caller who reaches every served organization skips filtering and an endpoint without a filter fails
-closed.
+the Ed-Fi `auth` hierarchy, and the hidden columns. The three endpoints are in `AUTH_ENDPOINTS`, so an
+endpoint without a filter fails closed. A caller who reaches every served organization skips filtering
+on assessmentEnrollments only. Assessments and offerings carry organizations the orgs endpoint doesn't
+serve (a vendor or service center that defines or assigns a test), so for them reaching every served
+organization doesn't mean the filter excludes nothing.
 
 For claimed ed-orgs C: Down(C) is C and everything below it; Up(C) everything above it (the courses
 rule); Reach(C) = Down(C) ∪ Up(C).
@@ -112,12 +125,25 @@ rule); Reach(C) = Down(C) ∪ Up(C).
 | Resource | Visible when |
 | --- | --- |
 | assessmentEnrollments | The registration's school is in Down(C) and the student is related to C. Testing and reporting organizations never widen access. |
-| assessmentOfferings | Any of its organizations (assigning, participating, registration schools) is in Reach(C). |
-| assessments | No defining organization (Ed-Fi authorizes assessment metadata by namespace, not ed-org), or any of its organizations (defining, or any organization of any of its offerings) is in Reach(C). |
+| assessmentOfferings | Any of its organizations (assigning, participating, registration schools) is in Down(C), or a participating organization is in Up(C). The assigning organization counts in Up(C) only when no organization is listed as taking part. |
+| assessments | No defining organization (Ed-Fi authorizes assessment metadata by namespace, not ed-org), or its defining organization is in Reach(C), or one of its offerings is visible. |
 
 So a school sees the sitting its district assigned, and every enrollment a caller sees points at an
-offering, user and school it can also read (an org above the caller is the one exception, as for
-`courses.org`).
+offering, user and school it can also read.
+
+Org references are looser, because a resource is visible through any one of its organizations:
+- An org above the caller, as for `courses.org`.
+- A sibling. An offering's `org` is its assigning organization, which can sit in another district: fixture
+  O4, assigned by district B with district A participating, gives district A an `/orgs/<id>` that
+  answers 404. The same holds for `assessment.org` when the assessment is visible only through an
+  offering, and for the participating-organization references in metadata.
+
+Going up, the assigning organization counts only when nobody is listed as taking part. A pilot an SEA
+assigns with only district B participating stays out of district A's schools, and a district's retest
+for one school stays out of its other schools (fixture: MIDDLE doesn't see O2, B1 doesn't see O4). A
+school still sees every sitting its students are registered for, through the registration rows. An
+offering with no participation rows, such as a state test window, stays visible to every school below
+the assigning organization.
 
 ## Refresh
 
@@ -126,7 +152,9 @@ offering, user and school it can also read (an org above the caller is the one e
   registration change refreshes `assessmentenrollments` and the helper; a participation change
   `assessmentofferings` and the helper.
 - SQL Server: tables filled by `oneroster12.sp_refresh_<view>`, run by `sp_refresh_all` (the Agent
-  job) after the rostering tables.
+  job) after the rostering tables; it skips an assessment table whose procedure isn't deployed.
+  `deploy-mssql.js` refreshes them after a deploy, and deploys the assessment files only on SQL Server
+  2019 or later (they use a UTF-8 collation to hash).
 
 ## Tests
 
@@ -139,6 +167,10 @@ offering, user and school it can also read (an org above the caller is the one e
   `compare-api.js ods-vs-dms | dms-record --assessment-rostering`.
 - Bruno: `tests/bruno/tests-assessment` with `environments/assessment-ods.bru` or
   `assessment-dms.bru` (needs a client for school 255901001).
+- Not covered yet: the authorization matrix on SQL Server and with several ed-orgs in one claim;
+  `deploy-mssql.js` and the README's manual deploy; fixture data with keys that differ only in case,
+  lower-case or punctuated descriptor code values, or a defining or assigning organization outside the
+  hierarchy seen by a full-access caller; a check that org references resolve (`tests/href-integrity.js`).
 
 ## End-user docs to update (Ed-Fi docs repo, not edited here)
 

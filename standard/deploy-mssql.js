@@ -220,10 +220,26 @@ async function checkPrerequisites(pool) {
 
         console.log('');
 
+        return majorVersion;
+
     } catch (err) {
         console.error('❌ Prerequisites check failed:', err.message);
         throw err;
     }
+}
+
+// Assessment rostering hashes its sourcedIds as UTF-8 (COLLATE ..._UTF8), which needs SQL Server 2019
+// (major version 15). On an older server its files are left out: the rostering tables deploy as before,
+// sp_refresh_all skips the missing procedures, and the assessment endpoints answer "not available".
+const ASSESSMENT_MIN_MAJOR_VERSION = 15;
+
+function filesForServer(files, majorVersion) {
+    if (majorVersion >= ASSESSMENT_MIN_MAJOR_VERSION) return files;
+    const skipped = files.filter(file => path.basename(file).startsWith('assessment'));
+    if (skipped.length > 0) {
+        console.log(`⚠️  SQL Server ${majorVersion} is older than 2019: skipping the assessment rostering files (${skipped.map(file => path.basename(file)).join(', ')})\n`);
+    }
+    return files.filter(file => !skipped.includes(file));
 }
 
 async function runDataRefresh() {
@@ -269,12 +285,12 @@ async function deploy() {
         console.log('✅ Connected successfully\\n');
 
         // Check prerequisites
-        await checkPrerequisites(pool);
+        const majorVersion = await checkPrerequisites(pool);
 
         let successCount = 0;
         let failCount = 0;
 
-        for (const filename of sqlFiles) {
+        for (const filename of filesForServer(sqlFiles, majorVersion)) {
             console.log('Executing file:', path.basename(filename));
             const success = await executeSQLFile(pool, filename);
             if (success) {

@@ -51,6 +51,7 @@ directory structure.
 ## Prerequisites
 
 - **SQL Server 2016 or later** (required for JSON support)
+- **SQL Server 2019 or later** for assessment rostering (UTF-8 collations hash its sourcedIds); on an older server `deploy-mssql.js` skips those files and the assessment endpoints answer "not available"
 - **Ed-Fi ODS** with Data Standard 5.0 or later
 - **SQL Server Agent** service running (for automated refreshes)
 - **Database permissions** for creating schemas, tables, procedures, and jobs
@@ -80,7 +81,7 @@ The Node.js deployment script provides:
 If you prefer manual execution, run each SQL file in this order:
 
 1. Foundation: `00_setup.sql`, `01_descriptors.sql`, `02_descriptorMappings.sql`
-2. Core (includes tables and indexes): `academic_sessions.sql`, `orgs.sql`, `courses.sql`, `classes.sql`, `demographics.sql`, `users.sql`, `enrollments.sql`
+2. Core (includes tables and indexes): `academic_sessions.sql`, `orgs.sql`, `courses.sql`, `classes.sql`, `demographics.sql`, `users.sql`, `enrollments.sql`; on Data Standard 5.2 and 6.1 also the assessment rostering files `assessments.sql`, `assessment_offerings.sql`, `assessment_enrollments.sql`, `assessment_auth_orgs.sql` (SQL Server 2019 or later; `sp_refresh_all` skips them when they aren't deployed)
 3. Orchestration: `master_refresh.sql`, `sql_agent_job.sql`
 
 ### 2. Populate Data Tables
@@ -96,6 +97,11 @@ EXEC oneroster12.sp_refresh_classes;
 EXEC oneroster12.sp_refresh_demographics;
 EXEC oneroster12.sp_refresh_users;
 EXEC oneroster12.sp_refresh_enrollments;
+-- Data Standard 5.2 and 6.1, assessment rostering (when deployed)
+EXEC oneroster12.sp_refresh_assessments;
+EXEC oneroster12.sp_refresh_assessmentofferings;
+EXEC oneroster12.sp_refresh_assessmentenrollments;
+EXEC oneroster12.sp_refresh_assessmentauthorgs;
 
 -- Verify data was loaded
 SELECT COUNT(*) FROM oneroster12.orgs;

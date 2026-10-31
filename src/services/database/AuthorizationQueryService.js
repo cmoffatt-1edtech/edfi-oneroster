@@ -31,6 +31,11 @@ const AUTH_ENDPOINTS = {
 // take the unfiltered path. Derived from the map above so the two cannot drift apart.
 const AUTH_ENDPOINT_NAMES = new Set(Object.values(AUTH_ENDPOINTS));
 
+// Always filtered: their filter reads organizations the served orgs don't include (the
+// assessmentauthorgs helper keeps a vendor or service center that defines or assigns an
+// assessment), so reaching every served organization doesn't mean the filter excludes nothing.
+const ALWAYS_FILTERED = new Set([AUTH_ENDPOINTS.assessments, AUTH_ENDPOINTS.assessmentOfferings]);
+
 // The organizations this API serves. Every educationOrganizationId carried by a OneRoster
 // resource is one of these, so it is the set the relationship filter can discriminate on.
 const ORGS_TABLE = 'orgs';
@@ -228,23 +233,6 @@ class AuthorizationQueryService {
       .select(this.authObjects.columns.sourceOrgId)
       .from(this.authObjects.tables.orgToOrg)
       .whereIn(this.authObjects.columns.targetOrgId, educationOrganizationIds);
-  }
-
-  /**
-   * Build a subquery for every education organization above or below the caller's
-   * (Reach = Down ∪ Up). Used where data owned higher up, such as a district-assigned
-   * assessment administration, must be visible to the schools that take part in it.
-   * @param {Array<string>} educationOrganizationIds - Claimed education organization IDs
-   * @returns {Object|null} Knex subquery selecting org IDs, or null if input is empty
-   */
-  buildReachableOrgIdsQuery(educationOrganizationIds) {
-    const accessibleOrgIds = this.buildAccessibleOrgIdsQuery(educationOrganizationIds);
-
-    if (!accessibleOrgIds) {
-      return null;
-    }
-
-    return accessibleOrgIds.union(this.buildAncestorOrgIdsQuery(educationOrganizationIds));
   }
 
   /**
@@ -515,26 +503,49 @@ class AuthorizationQueryService {
 
   /**
    * Build a subquery for the assessments or offerings with an organization in the caller's
-   * reach, read from the assessmentauthorgs helper view
+   * reach, read from the assessmentauthorgs helper view: an organization at or below a claimed
+   * ed-org (Down), or above one (Up). Up doesn't count an offering's assigning organization
+   * when the offering has participating organizations: a state-assigned sitting that only
+   * district B takes part in stays out of district A's schools.
    * @param {string} keyColumn - assessmentSourcedId or assessmentOfferingSourcedId
    */
   buildAssessmentAuthOrgsQuery(keyColumn, educationOrganizationIds) {
+    const offeringsWithParticipants = this.knex
+      .withSchema(this.schema)
+      .select('assessmentOfferingSourcedId')
+      .from(ASSESSMENT_AUTH_ORGS_VIEW)
+      .where('orgRole', 'participating')
+      .whereNotNull('assessmentOfferingSourcedId');
+
     return this.knex
       .withSchema(this.schema)
       .select(keyColumn)
       .from(ASSESSMENT_AUTH_ORGS_VIEW)
       .whereNotNull(keyColumn)
-      .whereIn('educationOrganizationId', this.buildReachableOrgIdsQuery(educationOrganizationIds));
+      .where(reach => {
+        reach
+          .whereIn('educationOrganizationId', this.buildAccessibleOrgIdsQuery(educationOrganizationIds))
+          .orWhere(up => {
+            up
+              .whereIn('educationOrganizationId', this.buildAncestorOrgIdsQuery(educationOrganizationIds))
+              .where(role => {
+                role
+                  .whereNot('orgRole', 'assigning')
+                  .orWhereNotIn('assessmentOfferingSourcedId', offeringsWithParticipants);
+              });
+          });
+      });
   }
 
   /**
    * Build authorization filter for assessment offerings (Ed-Fi AssessmentAdministration)
    *
-   * Visible when any of the offering's organizations is above or below a claimed ed-org: the
-   * assigning organization, every participating organization, and every school with a
-   * registration on it. Up matters because a state or district usually assigns the test and
-   * the schools take it; the registration schools cover an offering assigned by an
-   * organization outside the hierarchy, so every visible enrollment's offering is visible too.
+   * Visible when any of the offering's organizations is at or below a claimed ed-org (the
+   * assigning organization, every participating organization, every school with a registration
+   * on it), or a participating organization is above one. Up matters because a district usually
+   * takes part and its schools sit the test; the assigning organization counts going up only
+   * when nobody is listed as taking part. The registration schools cover an offering assigned by
+   * an organization outside the hierarchy, so every visible enrollment's offering is visible too.
    */
   async buildAssessmentOfferingAuthorizationFilter(educationOrganizationIds) {
     if (!this.buildAccessibleOrgIdsQuery(educationOrganizationIds)) {
@@ -557,8 +568,8 @@ class AuthorizationQueryService {
    *
    * Ed-Fi authorizes assessment metadata by namespace, not by ed-org, so an assessment with no
    * defining organization is visible to every caller. Otherwise it is visible when its defining
-   * organization, or any organization of any of its offerings, is above or below a claimed
-   * ed-org. definingEducationOrganizationId is the Ed-Fi value, kept even when the org GUIDRef
+   * organization is above or below a claimed ed-org, or an organization of any of its offerings
+   * makes that offering visible (buildAssessmentAuthOrgsQuery). definingEducationOrganizationId is the Ed-Fi value, kept even when the org GUIDRef
    * is null because the organization isn't one OneRoster publishes.
    */
   async buildAssessmentAuthorizationFilter(educationOrganizationIds) {
@@ -631,7 +642,8 @@ class AuthorizationQueryService {
     // through to the null return below rather than reaching the pass-through. fullAccess lets
     // callers report that filtering was skipped; apply() keeps the shape uniform for
     // applyAuthorizationFilter.
-    if (AUTH_ENDPOINT_NAMES.has(endpoint) && await this.hasFullEducationOrganizationAccess(educationOrganizationIds)) {
+    if (AUTH_ENDPOINT_NAMES.has(endpoint) && !ALWAYS_FILTERED.has(endpoint) &&
+        await this.hasFullEducationOrganizationAccess(educationOrganizationIds)) {
       return { fullAccess: true, apply: query => query };
     }
 

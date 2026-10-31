@@ -111,7 +111,7 @@ BEGIN
             CASE WHEN subject.CodeValue IS NOT NULL THEN '["' + STRING_ESCAPE(subject.CodeValue, 'json') + '"]' ELSE '[]' END AS subjects,
             -- Grade level code values, as users.grades
             COALESCE((
-                SELECT '[' + STRING_AGG('"' + STRING_ESCAPE(d.CodeValue, 'json') + '"', ',') WITHIN GROUP (ORDER BY d.CodeValue) + ']'
+                SELECT '[' + STRING_AGG('"' + STRING_ESCAPE(d.CodeValue, 'json') + '"', ',') WITHIN GROUP (ORDER BY d.CodeValue COLLATE Latin1_General_100_BIN2) + ']'
                 FROM edfi.AssessmentAssessedGradeLevel g
                 JOIN edfi.Descriptor d ON d.DescriptorId = g.GradeLevelDescriptorId
                 WHERE g.Namespace = a.Namespace AND g.AssessmentIdentifier = a.AssessmentIdentifier

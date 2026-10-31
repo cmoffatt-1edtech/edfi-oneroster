@@ -132,6 +132,18 @@ export async function initializeCronJobs() {
       }
     }
 
+    // pg-boss keeps schedules across restarts, so with the flag off drop any an earlier run left
+    // for the assessment views; nothing works those queues now
+    if (!isAssessmentRosteringEnabled()) {
+      for (const view of ASSESSMENT_VIEWS) {
+        try {
+          await boss.unschedule(`oneroster-refresh-${view}`);
+        } catch (err) {
+          logger.warn({ view, err }, 'Could not remove the refresh schedule for an assessment view');
+        }
+      }
+    }
+
     logger.info('CRON jobs initialized successfully for PostgreSQL');
 
     // When a new ODS instance is registered for the first time, immediately

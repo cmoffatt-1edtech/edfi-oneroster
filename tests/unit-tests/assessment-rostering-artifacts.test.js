@@ -43,6 +43,10 @@ describe.each([
     expect(texts).toMatch(mssql ? /REPLACE\(REPLACE\(LOWER\(/ : /replace\(replace\(lower\(/);
   });
 
+  test('sorts subjects and grades by code point, so both engines list them alike', () => {
+    expect(read(version, set, 'assessments.sql')).toMatch(mssql ? /ORDER BY d\.\[?CodeValue\]? COLLATE Latin1_General_100_BIN2\)/ : /order by d\."?codevalue"? collate "C"\)/i);
+  });
+
   if (mssql) {
     test('hashes the new sourcedIds as UTF-8, as PostgreSQL does', () => {
       expect(texts).toContain('COLLATE Latin1_General_100_CI_AS_SC_UTF8 AS VARCHAR(MAX)');
@@ -51,7 +55,8 @@ describe.each([
     test('sp_refresh_all refreshes the four tables and counts them', () => {
       const orchestration = fs.readFileSync(path.join(STANDARD, version, 'artifacts', set, 'orchestration', 'master_refresh.sql'), 'utf8');
       for (const view of ASSESSMENT_VIEWS) expect(orchestration).toContain(`('${view}')`);
-      expect(orchestration).not.toMatch(/ORDER BY table_name\) < 7 THEN/);
+      expect(orchestration).not.toMatch(/ROW_NUMBER\(\) OVER \(ORDER BY table_name\)/);
+      expect(orchestration).toContain("' UNION ALL ') WITHIN GROUP (ORDER BY table_name)");
     });
   }
 });

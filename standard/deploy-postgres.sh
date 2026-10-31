@@ -138,6 +138,10 @@ materialized_view_files=(
     "demographics.sql:demographics"
     "users.sql:users"
     "enrollments.sql:enrollments"
+    "assessments.sql:assessments"
+    "assessment_offerings.sql:assessmentofferings"
+    "assessment_enrollments.sql:assessmentenrollments"
+    "assessment_auth_orgs.sql:assessmentauthorgs"
     "users_ds4.sql:users"
     "enrollments_ds4.sql:enrollments"
 )

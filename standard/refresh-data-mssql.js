@@ -107,6 +107,23 @@ async function refreshOneRosterData() {
             'sp_refresh_enrollments'
         ];
 
+        // Assessment rostering procedures: only the Data Standard 5.2 and later artifacts have them, so
+        // they run when deployed
+        const optionalProcedures = [
+            'sp_refresh_assessments',
+            'sp_refresh_assessmentofferings',
+            'sp_refresh_assessmentenrollments',
+            'sp_refresh_assessmentauthorgs'
+        ];
+        const deployed = await pool.request().query(`
+            SELECT p.name
+            FROM sys.procedures p
+            JOIN sys.schemas s ON p.schema_id = s.schema_id
+            WHERE s.name = 'oneroster12'
+        `);
+        const deployedNames = new Set(deployed.recordset.map(row => row.name));
+        refreshOrder.push(...optionalProcedures.filter(proc => deployedNames.has(proc)));
+
         let successCount = 0;
         const startTime = Date.now();
 
@@ -200,7 +217,7 @@ async function refreshOneRosterData() {
 
         // Show record counts after refresh
         console.log('📊 Record counts after refresh:');
-        const tables = ['academicsessions', 'classes', 'courses', 'demographics', 'enrollments', 'orgs', 'users'];
+        const tables = refreshOrder.map(proc => proc.replace('sp_refresh_', '')).sort();
 
         for (const table of tables) {
             try {

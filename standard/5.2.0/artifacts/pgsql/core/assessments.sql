@@ -22,7 +22,7 @@ subjects as (
     select
         s.namespace,
         s.assessmentidentifier,
-        json_agg(d.codevalue order by d.codevalue) as subjects
+        json_agg(d.codevalue order by d.codevalue collate "C") as subjects
     from edfi.assessmentacademicsubject s
         join edfi.descriptor d
             on d.descriptorid = s.academicsubjectdescriptorid
@@ -33,7 +33,7 @@ grades as (
     select
         g.namespace,
         g.assessmentidentifier,
-        json_agg(d.codevalue order by d.codevalue) as grades
+        json_agg(d.codevalue order by d.codevalue collate "C") as grades
     from edfi.assessmentassessedgradelevel g
         join edfi.descriptor d
             on d.descriptorid = g.gradeleveldescriptorid

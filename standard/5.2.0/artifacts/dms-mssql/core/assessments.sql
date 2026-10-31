@@ -93,14 +93,14 @@ BEGIN
             CAST(a.[AssessmentVersion] AS NVARCHAR(20)),
             category.[CodeValue],
             COALESCE((
-                SELECT '[' + STRING_AGG('"' + STRING_ESCAPE(d.[CodeValue], 'json') + '"', ',') WITHIN GROUP (ORDER BY d.[CodeValue]) + ']'
+                SELECT '[' + STRING_AGG('"' + STRING_ESCAPE(d.[CodeValue], 'json') + '"', ',') WITHIN GROUP (ORDER BY d.[CodeValue] COLLATE Latin1_General_100_BIN2) + ']'
                 FROM edfi.[AssessmentAcademicSubject] s
                 JOIN dms.[Descriptor] d ON d.[DescriptorId] = s.[AcademicSubjectDescriptor_DescriptorId]
                 WHERE s.[Assessment_DocumentId] = a.[DocumentId]
             ), '[]'),
             -- Grade level code values, as users.grades
             COALESCE((
-                SELECT '[' + STRING_AGG('"' + STRING_ESCAPE(d.[CodeValue], 'json') + '"', ',') WITHIN GROUP (ORDER BY d.[CodeValue]) + ']'
+                SELECT '[' + STRING_AGG('"' + STRING_ESCAPE(d.[CodeValue], 'json') + '"', ',') WITHIN GROUP (ORDER BY d.[CodeValue] COLLATE Latin1_General_100_BIN2) + ']'
                 FROM edfi.[AssessmentAssessedGradeLevel] g
                 JOIN dms.[Descriptor] d ON d.[DescriptorId] = g.[GradeLevelDescriptor_DescriptorId]
                 WHERE g.[Assessment_DocumentId] = a.[DocumentId]

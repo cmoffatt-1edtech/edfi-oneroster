@@ -4,7 +4,7 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 import { getDefaultDatabaseService } from '../../services/database/DatabaseServiceFactory.js';
-import { ASSESSMENT_ENDPOINTS, ASSESSMENT_ENDPOINT_NAMES } from '../../config/assessment-rostering.js';
+import { ASSESSMENT_ENDPOINTS, ASSESSMENT_ENDPOINT_NAMES, ASSESSMENT_VIEWS } from '../../config/assessment-rostering.js';
 import { getLogger } from '../../utils/logger.js';
 
 const logger = getLogger('OneRosterController');
@@ -127,13 +127,20 @@ function isMissingViewError(error) {
     return error?.code === '42P01' || error?.number === 208 || error?.originalError?.info?.number === 208;
 }
 
+// An assessment view as the database names it in the error: relation "oneroster12.assessments"
+// (PostgreSQL), 'oneroster12.assessments' (SQL Server). The SQL that knex puts in front of the
+// message quotes each part separately, so it never matches.
+const MISSING_ASSESSMENT_VIEW = new RegExp(`oneroster12\\.(${ASSESSMENT_VIEWS.join('|')})\\b`, 'i');
+
 /**
  * An assessment rostering endpoint on a data store without the assessment views: Data Standard
  * 4.0, which has no assessment registration data, or the views were never deployed. The service
- * doesn't know a data store's Data Standard, so the missing view is how it finds out.
+ * doesn't know a data store's Data Standard, so the missing view is how it finds out. Any other
+ * missing object, such as an auth table, stays a server error.
  */
 function isAssessmentRosteringUnavailable(endpoint, error) {
-    return ASSESSMENT_ENDPOINT_NAMES.has(endpoint) && isMissingViewError(error);
+    return ASSESSMENT_ENDPOINT_NAMES.has(endpoint) && isMissingViewError(error) &&
+        [error.message, error.originalError?.info?.message].some(message => MISSING_ASSESSMENT_VIEW.test(message ?? ''));
 }
 
 function handleAssessmentRosteringUnavailable(res) {

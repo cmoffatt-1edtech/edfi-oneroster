@@ -322,11 +322,12 @@ export const FIXTURE = {
       periods: [{ begin: '2026-04-01', end: '2026-04-02' }, { begin: '2026-03-01', end: '2026-03-05' }, { begin: '2026-05-01', end: null }],
       participating: [{ org: LEA_B, lastModified: '2026-02-06T10:00:00Z' }, { org: LEA }]
     },
-    // O2: assigned by district A, no windows
+    // O2: assigned by district A, no windows; only HIGH takes part, so MIDDLE doesn't see it
     { key: 'O2', assessment: 'math', assigning: LEA, identifier: 'District Retest', periods: [], participating: [{ org: HIGH }] },
     // O3: assigned by the service center, no participation; reachable only through its registration school
     { key: 'O3', assessment: 'science', assigning: SERVICE_CENTER, identifier: 'Vendor Sitting', periods: [{ begin: '2026-02-10', end: '2026-02-10' }], participating: [] },
-    // O4: assigned by district B with district A taking part; no registrations
+    // O4: assigned by district B with district A taking part; no registrations. District B's own
+    // school doesn't see it: going up, the assigning organization counts only without participants
     { key: 'O4', assessment: 'math', assigning: LEA_B, identifier: 'B Sitting', periods: [{ begin: '2026-03-15', end: '2026-03-20' }], participating: [{ org: LEA }] }
   ],
   studentAssessmentRegistrations: [
@@ -1229,12 +1230,12 @@ export const ASSESSMENT_VISIBILITY = {
   },
   [MIDDLE]: {
     assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES],
-    assessmentofferings: [O1, O2, O4],
+    assessmentofferings: [O1, O4],
     assessmentenrollments: []
   },
   [SCHOOL_B1]: {
     assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES],
-    assessmentofferings: [O1, O3, O4],
+    assessmentofferings: [O1, O3],
     assessmentenrollments: [R2, R4]
   }
 };

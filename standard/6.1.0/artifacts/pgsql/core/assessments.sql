@@ -33,7 +33,7 @@ grades as (
     select
         g.namespace,
         g.assessmentidentifier,
-        json_agg(d.codevalue order by d.codevalue) as grades
+        json_agg(d.codevalue order by d.codevalue collate "C") as grades
     from edfi.assessmentassessedgradelevel g
         join edfi.descriptor d
             on d.descriptorid = g.gradeleveldescriptorid
