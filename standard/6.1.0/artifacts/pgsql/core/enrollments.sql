@@ -25,7 +25,7 @@ staff_enrollments_formatted as (
             '-', sections.schoolyear::varchar,
             '-', lower(sections.sectionidentifier)::varchar,
             '-', lower(sections.sessionname)::varchar,
-            '-', beginDate::varchar
+            '-', to_char(beginDate, 'YYYY-MM-DD') -- fixed format; ::varchar would follow the session DateStyle
         )) as "sourcedId", -- unique ID constructed from natural key of Ed-Fi StaffSectionAssociations
         'active' as "status",
         ssa.lastmodifieddate as "dateLastModified",
@@ -103,7 +103,7 @@ student_enrollments_formatted as (
             '-', sections.schoolyear::varchar,
             '-', lower(sections.sectionidentifier)::varchar,
             '-', lower(sections.sessionname)::varchar,
-            '-', beginDate::varchar
+            '-', to_char(beginDate, 'YYYY-MM-DD')
         )) as "sourcedId", -- unique ID constructed from natural key of Ed-Fi StudentSectionAssociations
         'active' as "status",
         ssa.lastmodifieddate as "dateLastModified",
