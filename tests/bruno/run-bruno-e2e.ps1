@@ -131,11 +131,12 @@ function Setup-EnvironmentAndContainers {
         }
     }
 
-    # Export key variables for Bruno .bru environments
+    # Report the variables the Bruno .bru environments read, by name only: the
+    # client keys and secrets would otherwise end up in CI logs.
     $keys = @('LEA_KEY','LEA_SECRET','SCHOOL_KEY','SCHOOL_SECRET','BASE_URL','ODS_API_VIRTUAL_NAME','ONEROSTER_API_VIRTUAL_NAME')
     foreach ($key in $keys) {
-        $val = [System.Environment]::GetEnvironmentVariable($key, 'Process')
-        Write-Host "$key=$val"
+        $state = if ([System.Environment]::GetEnvironmentVariable($key, 'Process')) { 'set' } else { 'NOT SET' }
+        Write-Host "$key is $state"
     }
 
     # 2. Start Docker containers
@@ -251,11 +252,17 @@ try {
     Write-Host "Bruno tests completed successfully."
 }
 finally {
-    # Stop all services after tests
-    $stopScript = Join-Path $PSScriptRoot '..\..\stack\stop-services.ps1'
-    $stopEnvSuffix = Get-EnvFileName -Version $Version -InstallType $InstallType -DbType $DbType
-    $envFilePath = Join-Path $PSScriptRoot "environments\$stopEnvSuffix"
-    & $stopScript -Purge -EnvFile $envFilePath -InstallType $InstallType -DbType $DbType
+    # Tear down only a stack this run started. Without -NeedEnvironmentSetup the
+    # tests ran against a stack that was already up, and -Purge would delete its
+    # containers, volumes (databases) and images.
+    if ($NeedEnvironmentSetup) {
+        $stopScript = Join-Path $PSScriptRoot '..\..\stack\stop-services.ps1'
+        $stopEnvSuffix = Get-EnvFileName -Version $Version -InstallType $InstallType -DbType $DbType
+        $envFilePath = Join-Path $PSScriptRoot "environments\$stopEnvSuffix"
+        & $stopScript -Purge -EnvFile $envFilePath -InstallType $InstallType -DbType $DbType
+    } else {
+        Write-Host "Leaving the existing stack running: it was not started by this script."
+    }
 
     Pop-Location
 }

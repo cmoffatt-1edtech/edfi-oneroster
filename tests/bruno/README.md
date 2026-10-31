@@ -51,7 +51,10 @@ From the project root, run the PowerShell script:
 - `-Version` can be `6.1.0`, `5.2.0` or `4.0.0` (corresponds to the environment and
   stack version). `5.2.0` is the default
 - `-NeedEnvironmentSetup` (optional) will start/initialize the Docker stack and
-  wait for services to be healthy before running tests
+  wait for services to be healthy before running tests. The script then purges
+  that stack when the tests finish (`stop-services.ps1 -Purge`: containers,
+  volumes and images). Without it, the tests run against the stack you already
+  have running, and the script leaves that stack and its databases alone
 - `-BuildImage` (optional) builds the OneRoster image from the local `Dockerfile`
   before starting the stack. When omitted, the pre-built image referenced by the
   `ONEROSTER_IMAGE` environment variable is used (defaulting to
@@ -63,11 +66,20 @@ From the project root, run the PowerShell script:
 
 ### 3. What the Script Does
 
-- Sets up environment variables and keys
+With `-NeedEnvironmentSetup`:
+
+- Sets up environment variables and keys (it prints which variables are set,
+  never their values)
 - Starts Docker containers for the Ed-Fi OneRoster stack
 - Waits for API endpoints to be healthy
 - Runs all Bruno tests in the collection using the correct environment
-- Stops and cleans up all services after tests complete
+- Stops the stack and purges its containers, volumes and images after the
+  tests complete
+
+Without `-NeedEnvironmentSetup` it runs the Bruno tests against the stack that
+is already running (copying the test TLS certificates into `stack/ssl` only
+where none exist) and does not stop or purge anything. Use this locally when
+you want to keep your databases.
 
 ### Run Bruno Tests Manually (Docker Environment)
 
