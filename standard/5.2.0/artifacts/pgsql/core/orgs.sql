@@ -37,6 +37,42 @@ seas as (
     	join edfi.educationOrganization seaOrg
     		on seaOrg.educationOrganizationId = stateEducationAgency.stateEducationAgencyId
 ),
+-- Optional org fields (provisional, WS2 shortlist; names as in ClassLink's metadata list): the NCES
+-- and state identifiers, the physical address and the main phone. A key is left out when Ed-Fi has
+-- no value; ties go to the lowest value by code point, the same on every engine.
+org_codes as (
+    select c.educationorganizationid,
+        min(c.identificationcode collate "C") filter (where d.codevalue = 'NCES') as nces_id,
+        min(c.identificationcode collate "C") filter (where d.codevalue = 'SEA') as state_id
+    from edfi.educationorganizationidentificationcode c
+        join edfi.descriptor d on d.descriptorid = c.educationorganizationidentificationsystemdescriptorid
+    group by c.educationorganizationid
+),
+org_address as (
+    select distinct on (a.educationorganizationid)
+        a.educationorganizationid, a.streetnumbername, a.apartmentroomsuitenumber, a.city, s.codevalue as state, a.postalcode
+    from edfi.educationorganizationaddress a
+        join edfi.descriptor t on t.descriptorid = a.addresstypedescriptorid and t.codevalue = 'Physical'
+        left join edfi.descriptor s on s.descriptorid = a.stateabbreviationdescriptorid
+    order by a.educationorganizationid, a.streetnumbername collate "C", a.city collate "C", a.postalcode collate "C"
+),
+org_phone as (
+    select p.educationorganizationid, min(p.telephonenumber collate "C") as phone
+    from edfi.educationorganizationinstitutiontelephone p
+        join edfi.descriptor d on d.descriptorid = p.institutiontelephonenumbertypedescriptorid and d.codevalue = 'Main'
+    group by p.educationorganizationid
+),
+org_extras as (
+    select o.educationorganizationid, jsonb_strip_nulls(jsonb_build_object(
+        'NCESId', codes.nces_id, 'orgStateId', codes.state_id,
+        'address1', address.streetnumbername, 'address2', address.apartmentroomsuitenumber, 'city', address.city,
+        'state', address.state, 'postalCode', address.postalcode, 'phone', phone.phone
+    )) as extras
+    from edfi.educationorganization o
+        left join org_codes codes on codes.educationorganizationid = o.educationorganizationid
+        left join org_address address on address.educationorganizationid = o.educationorganizationid
+        left join org_phone phone on phone.educationorganizationid = o.educationorganizationid
+),
 schools_formatted as (
     select
         md5(schools.schoolId::text) as "sourcedId", -- unique ID constructed from natural key of Ed-Fi Schools
@@ -52,15 +88,16 @@ schools_formatted as (
         ) else null end as "parent",
         null::json as "children",
         schoolId as "educationOrganizationId",
-        json_build_object(
-            'edfi', json_build_object(
+        (jsonb_build_object(
+            'edfi', jsonb_build_object(
                 'resource', 'schools',
-                'naturalKey', json_build_object(
+                'naturalKey', jsonb_build_object(
                     'schoolId', schoolId
                 )
             )
-        ) AS metadata
+        ) || coalesce(x.extras, '{}'::jsonb))::json as metadata
     from schools
+        left join org_extras x on x.educationorganizationid = schools.schoolId
 ),
 leas_formatted as (
     select
@@ -87,15 +124,16 @@ leas_formatted as (
             where s.localEducationAgencyId = leas.localEducationAgencyId
         ) as "children",
         localEducationAgencyId as "educationOrganizationId",
-        json_build_object(
-            'edfi', json_build_object(
+        (jsonb_build_object(
+            'edfi', jsonb_build_object(
                 'resource', 'localEducationAgencies',
-                'naturalKey', json_build_object(
+                'naturalKey', jsonb_build_object(
                     'localEducationAgencyId', localEducationAgencyId
                 )
             )
-        ) AS metadata
+        ) || coalesce(x.extras, '{}'::jsonb))::json as metadata
     from leas
+        left join org_extras x on x.educationorganizationid = leas.localEducationAgencyId
 ),
 seas_formatted as (
     select
@@ -118,15 +156,16 @@ seas_formatted as (
             where l.stateEducationAgencyId = seas.stateEducationAgencyId
         ) as "children",
         stateEducationAgencyId as "educationOrganizationId",
-        json_build_object(
-            'edfi', json_build_object(
+        (jsonb_build_object(
+            'edfi', jsonb_build_object(
                 'resource', 'stateEducationAgencies',
-                'naturalKey', json_build_object(
+                'naturalKey', jsonb_build_object(
                     'stateEducationAgencyId', stateEducationAgencyId
                 )
             )
-        ) AS metadata
+        ) || coalesce(x.extras, '{}'::jsonb))::json as metadata
     from seas
+        left join org_extras x on x.educationorganizationid = seas.stateEducationAgencyId
 ),
 -- property documentation at
 -- https://www.imsglobal.org/sites/default/files/spec/oneroster/v1p2/rostering-restbinding/OneRosterv1p2RosteringService_RESTBindv1p0.html#Main6p16p2

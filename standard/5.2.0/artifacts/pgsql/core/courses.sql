@@ -18,6 +18,14 @@ course_offerings as (
     select educationorganizationid, coursecode, max(schoolyear) as schoolyear
     from edfi.courseoffering
     group by educationorganizationid, coursecode
+),
+-- Optional course field (provisional, WS2 shortlist; ClassLink's metadata name): the state course
+-- code, left out when Ed-Fi has none; ties go to the lowest by code point
+state_codes as (
+    select c.educationorganizationid, c.coursecode, min(c.identificationcode collate "C") as state_code
+    from edfi.courseidentificationcode c
+        join edfi.descriptor d on d.descriptorid = c.courseidentificationsystemdescriptorid and d.codevalue = 'State course code'
+    group by c.educationorganizationid, c.coursecode
 )
 -- property documentation at
 -- https://www.imsglobal.org/sites/default/files/spec/oneroster/v1p2/rostering-restbinding/OneRosterv1p2RosteringService_RESTBindv1p0.html#Main6p8p2
@@ -53,20 +61,23 @@ select
     ) as "org",
     -- required to be SCED codes, not generally available
     null as "subjectCodes",
-    json_build_object(
-        'edfi', json_build_object(
+    (jsonb_build_object(
+        'edfi', jsonb_build_object(
             'resource', 'courses',
-            'naturalKey', json_build_object(
+            'naturalKey', jsonb_build_object(
                 'educationOrganizationId', crs.educationOrganizationId,
                 'courseCode', crs.coursecode
             )
         )
-    ) AS metadata,
+    ) || jsonb_strip_nulls(jsonb_build_object('courseStateId', state_codes.state_code)))::json AS metadata,
     crs.educationOrganizationId as "educationOrganizationId"
 from course crs
     left join course_offerings
         on crs.educationorganizationid = course_offerings.educationorganizationid
         and crs.coursecode = course_offerings.coursecode
+    left join state_codes
+        on state_codes.educationorganizationid = crs.educationorganizationid
+        and state_codes.coursecode = crs.coursecode
     left join edfi.school crs_school
         on crs.educationOrganizationId = crs_school.schoolid
     left join edfi.localEducationAgency crs_lea
