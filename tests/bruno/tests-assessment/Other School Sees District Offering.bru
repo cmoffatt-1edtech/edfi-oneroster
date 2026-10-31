@@ -1,0 +1,25 @@
+meta {
+  name: Other School Sees District Offering
+  type: http
+  seq: 26
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-school-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("1 assessmentOfferings", function() {
+    expect(res.getBody().assessmentOfferings).to.have.lengthOf(1);
+  });
+}

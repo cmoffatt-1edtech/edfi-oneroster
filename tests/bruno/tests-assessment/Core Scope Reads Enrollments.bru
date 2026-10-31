@@ -1,0 +1,25 @@
+meta {
+  name: Core Scope Reads Enrollments
+  type: http
+  seq: 30
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments?limit=1
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-core-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("1 assessmentEnrollments", function() {
+    expect(res.getBody().assessmentEnrollments).to.have.lengthOf(1);
+  });
+}

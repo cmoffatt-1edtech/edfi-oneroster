@@ -1,0 +1,21 @@
+meta {
+  name: Unknown Assessment
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessments/does-not-exist
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 404", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}

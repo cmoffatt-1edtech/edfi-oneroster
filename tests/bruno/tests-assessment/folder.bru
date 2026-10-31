@@ -1,0 +1,18 @@
+meta {
+  name: assessment rostering
+  seq: 4
+}
+
+docs {
+  # Assessment rostering (provisional)
+
+  Needs ASSESSMENT_ROSTERING_ENABLED=true and the assessment views, on the Grand Bend sample data
+  (Data Standard 5.2 or 6.1). Not part of the main collection, which runs with the service off.
+
+  ODS/API: `bru run tests-assessment -r --env-file environments/assessment-ods.bru`
+  DMS: `bru run tests-assessment -r --env-file environments/assessment-dms.bru`
+
+  Both need a client for school 255901001, the Grand Bend school with registrations
+  (ASSESSMENT_SCHOOL_KEY / ASSESSMENT_SCHOOL_SECRET). Expected visibility is in
+  docs/design/assessment-rostering-mappings.md.
+}

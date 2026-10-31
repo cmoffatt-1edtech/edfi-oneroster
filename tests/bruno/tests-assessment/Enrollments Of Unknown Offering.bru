@@ -1,0 +1,21 @@
+meta {
+  name: Enrollments Of Unknown Offering
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings/does-not-exist/assessmentEnrollments
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 404", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}
