@@ -105,8 +105,9 @@ const createCoverageMockKnex = ({ servedOrgs, unreachableOrgs, failQuery = false
 
 describe('AuthorizationQueryService', () => {
   describe('full access short circuit', () => {
-    // Driven off the exported map so a new endpoint is covered automatically
-    test.each(Object.values(AUTH_ENDPOINTS))(
+    // Driven off the exported map so a new endpoint is covered automatically. Assessments and
+    // offerings always stay filtered (assessment-rostering-auth.test.js).
+    test.each(Object.values(AUTH_ENDPOINTS).filter(endpoint => !['assessments', 'assessmentofferings'].includes(endpoint)))(
       'skips the relationship filter on %s when the caller reaches every organization',
       async (endpoint) => {
         const knex = createCoverageMockKnex({ servedOrgs: 2230, unreachableOrgs: 0 });

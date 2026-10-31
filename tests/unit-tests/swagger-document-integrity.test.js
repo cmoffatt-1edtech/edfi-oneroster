@@ -6,13 +6,20 @@
 import { describe, test, expect } from '@jest/globals';
 import { readFileSync } from 'fs';
 import YAML from 'yaml';
+import { mergeSwaggerFragment } from '../../src/config/swagger-document.js';
 
 // config/swagger.yml is hand-maintained and served to clients by src/app.js. A
 // malformed document does not stop the service from starting, so defects in it
 // surface only downstream — in the rendered docs, in generated clients, and in
 // contract tests. These checks assert structural invariants that must hold for
-// the document to describe the API accurately.
-const doc = YAML.parse(readFileSync(new URL('../../config/swagger.yml', import.meta.url), 'utf8'));
+// the document to describe the API accurately. They run on the document as served
+// with assessment rostering off, and with config/swagger-assessment-rostering.yml
+// merged in, as served when ASSESSMENT_ROSTERING_ENABLED is true.
+const readYaml = file => YAML.parse(readFileSync(new URL(`../../config/${file}`, import.meta.url), 'utf8'));
+const documents = [
+  ['config/swagger.yml', readYaml('swagger.yml')],
+  ['config/swagger.yml with assessment rostering', mergeSwaggerFragment(readYaml('swagger.yml'), readYaml('swagger-assessment-rostering.yml'))]
+];
 
 const isObject = value => value !== null && typeof value === 'object';
 
@@ -20,7 +27,7 @@ const hasDeclaredType = schema =>
   Boolean(schema.type || schema.$ref || schema.allOf || schema.oneOf || schema.anyOf || schema.enum);
 
 /** Visits every Schema Object nested under components.schemas, depth first. */
-const walkSchemas = visit => {
+const walkSchemas = (doc, visit) => {
   const walk = (schema, path) => {
     if (!isObject(schema)) return;
     visit(schema, path);
@@ -36,20 +43,20 @@ const walkSchemas = visit => {
 };
 
 /** Every operation in the document, as [label, operation] pairs. */
-const operations = () =>
+const operations = doc =>
   Object.entries(doc.paths).flatMap(([path, item]) =>
     Object.entries(item)
       .filter(([, operation]) => isObject(operation) && operation.responses)
       .map(([method, operation]) => [`${method.toUpperCase()} ${path}`, operation])
   );
 
-describe('config/swagger.yml', () => {
+describe.each(documents)('%s', (name, doc) => {
   // `schema` is a key of the Parameter, Media Type, and Header objects — never
   // of a Schema Object. Nesting one inside a schema silently discards
   // everything beneath it, leaving the property with no type.
   test('no schema nests a definition under a `schema` key', () => {
     const offenders = [];
-    walkSchemas((schema, path) => {
+    walkSchemas(doc, (schema, path) => {
       if ('schema' in schema) offenders.push(path);
     });
 
@@ -59,7 +66,7 @@ describe('config/swagger.yml', () => {
   // An untyped property renders blank in Swagger UI and generates as `any`.
   test('every property declares a type', () => {
     const untyped = [];
-    walkSchemas((schema, path) => {
+    walkSchemas(doc, (schema, path) => {
       Object.entries(schema.properties ?? {}).forEach(([name, value]) => {
         if (isObject(value) && !hasDeclaredType(value)) untyped.push(`${path}.${name}`);
       });
@@ -74,7 +81,7 @@ describe('config/swagger.yml', () => {
   // the spec's extension point.
   test('every object declares its members, except the free-form metadata extension point', () => {
     const shapeless = [];
-    walkSchemas((schema, path) => {
+    walkSchemas(doc, (schema, path) => {
       if (path.endsWith('.metadata')) return;
       if (schema.type === 'object' && !schema.properties && !schema.additionalProperties) {
         shapeless.push(path);
@@ -116,7 +123,7 @@ describe('config/swagger.yml', () => {
     );
 
     const problems = [];
-    operations().forEach(([label, operation]) => {
+    operations(doc).forEach(([label, operation]) => {
       if (!operation.security) {
         problems.push(`${label}: no security`);
         return;

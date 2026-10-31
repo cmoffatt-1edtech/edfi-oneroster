@@ -247,6 +247,26 @@ describe('envValidator', () => {
       });
     });
 
+    describe('ASSESSMENT_ROSTERING_ENABLED validation', () => {
+      const invalidError = 'ASSESSMENT_ROSTERING_ENABLED must be either "true" or "false" if set';
+      afterEach(() => { delete process.env.ASSESSMENT_ROSTERING_ENABLED; });
+
+      test.each([undefined, 'true', 'false', 'TRUE', ' False '])('should pass with %p', (value) => {
+        if (value === undefined) delete process.env.ASSESSMENT_ROSTERING_ENABLED;
+        else process.env.ASSESSMENT_ROSTERING_ENABLED = value;
+        const result = validateEnvironmentVariables();
+        expect(result.isValid).toBe(true);
+        expect(result.errors).not.toContain(invalidError);
+      });
+
+      test.each(['yes', '1', 'on'])('should fail with %p', (value) => {
+        process.env.ASSESSMENT_ROSTERING_ENABLED = value;
+        const result = validateEnvironmentVariables();
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContain(invalidError);
+      });
+    });
+
     describe.each(['ENABLE_SWAGGER_UI', 'ENABLE_OPEN_API_METADATA'])('%s validation', (name) => {
       const invalidError = `${name} must be either "true" or "false" if set`;
 

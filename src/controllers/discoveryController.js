@@ -14,6 +14,10 @@ import { isSwaggerUiEnabled, isOpenApiMetadataEnabled } from '../config/api-docs
 import { isDmsPlatform } from '../config/platform.js';
 import { getRouteContextConfig } from '../config/route-context-config.js';
 import { getDmsTokenUrl } from '../config/dms-config.js';
+import { isAssessmentRosteringEnabled, ASSESSMENT_ROSTERING_BASE_PATH } from '../config/assessment-rostering.js';
+
+// The assessment rostering service URL, after the rostering one, when that service is enabled
+const ASSESSMENT_ROSTERING_PATH = `/ims/oneroster${ASSESSMENT_ROSTERING_BASE_PATH}/`;
 
 /**
  * Ed-Fi API v8 (DMS): the route prefix is the tenant and the ROUTE_QUALIFIER_SEGMENTS values, each
@@ -40,6 +44,9 @@ function getDmsDiscovery(req) {
   }
   urls.oauth = getDmsTokenUrl();
   urls.dataManagementApi = `${prefix}/ims/oneroster/rostering/v1p2/`;
+  if (isAssessmentRosteringEnabled()) {
+    urls.assessmentRosteringApi = `${prefix}${ASSESSMENT_ROSTERING_PATH}`;
+  }
 
   return { version: '1.0.0', urls };
 }
@@ -81,6 +88,11 @@ export function getDiscovery(req, res) {
 
   urls.oauth = populateUrlTemplate(oauthTemplate, tenantId, contextValue, contextConfig);
   urls.dataManagementApi = populateUrlTemplate(apiTemplate, tenantId, contextValue, contextConfig);
+
+  if (isAssessmentRosteringEnabled()) {
+    const assessmentTemplate = buildUrlTemplate(baseUrl, multiTenancyEnabled, contextConfig, ASSESSMENT_ROSTERING_PATH);
+    urls.assessmentRosteringApi = populateUrlTemplate(assessmentTemplate, tenantId, contextValue, contextConfig);
+  }
 
   const response = {
     version: '1.0.0',

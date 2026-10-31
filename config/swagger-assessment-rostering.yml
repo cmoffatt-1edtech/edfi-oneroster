@@ -1,0 +1,756 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to 1EdTech Consortium, Inc. under one or more agreements.
+# 1EdTech Consortium, Inc. licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+
+# Assessment rostering (provisional): merged into config/swagger.yml by
+# src/config/swagger-document.js when ASSESSMENT_ROSTERING_ENABLED is true.
+
+tags:
+  - name: Assessment Rostering
+    x-tag-meaning: set
+    description: Provisional. Students registered for assessment sittings, from Ed-Fi assessment
+      registration data (Data Standard 5.2 and later). The 1EdTech service name and version are not
+      final, so the base path may change. Served only when ASSESSMENT_ROSTERING_ENABLED is true.
+paths:
+  /ims/oneroster/assessmentRostering/v1p0/assessments:
+    get:
+      tags:
+        - Assessment Rostering
+      summary: getAssessments
+      description: Return collection of assessments.
+      security:
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly
+      parameters:
+        - name: fields
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: orderBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+      responses:
+        "200":
+          description: Return collection of assessments.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/assessment"
+        "404":
+          description: Assessment rostering is not available for this data store.
+  /ims/oneroster/assessmentRostering/v1p0/assessments/{id}:
+    get:
+      tags:
+        - Assessment Rostering
+      summary: getAssessment
+      description: Return specific assessment.
+      security:
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessments]
+          x-source: getAssessments
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Return specific assessment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessment:
+                    $ref: "#/components/schemas/assessment"
+        "404":
+          description: Not found, not visible to the caller, or assessment rostering is not available for this
+            data store.
+  /ims/oneroster/assessmentRostering/v1p0/assessments/{id}/assessmentOfferings:
+    get:
+      tags:
+        - Assessment Rostering
+      summary: getAssessmentOfferingsForAssessment
+      description: Return collection of the offerings of an assessment.
+      security:
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessments]
+          x-source: getAssessments
+          schema:
+            type: string
+        - name: fields
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: orderBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+      responses:
+        "200":
+          description: Return collection of the offerings of an assessment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessmentOfferings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/assessmentOffering"
+        "404":
+          description: Assessment rostering is not available for this data store, or the parent resource was
+            not found.
+  /ims/oneroster/assessmentRostering/v1p0/assessmentOfferings:
+    get:
+      tags:
+        - Assessment Rostering
+      summary: getAssessmentOfferings
+      description: Return collection of assessment offerings.
+      security:
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly
+      parameters:
+        - name: fields
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: orderBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+      responses:
+        "200":
+          description: Return collection of assessment offerings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessmentOfferings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/assessmentOffering"
+        "404":
+          description: Assessment rostering is not available for this data store.
+  /ims/oneroster/assessmentRostering/v1p0/assessmentOfferings/{id}:
+    get:
+      tags:
+        - Assessment Rostering
+      summary: getAssessmentOffering
+      description: Return specific assessment offering.
+      security:
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessmentOfferings]
+          x-source: getAssessmentOfferings
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Return specific assessment offering.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessmentOffering:
+                    $ref: "#/components/schemas/assessmentOffering"
+        "404":
+          description: Not found, not visible to the caller, or assessment rostering is not available for this
+            data store.
+  /ims/oneroster/assessmentRostering/v1p0/assessmentOfferings/{id}/assessmentEnrollments:
+    get:
+      tags:
+        - Assessment Rostering
+      summary: getAssessmentEnrollmentsForOffering
+      description: Return collection of the enrollments on an assessment offering.
+      security:
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessmentOfferings]
+          x-source: getAssessmentOfferings
+          schema:
+            type: string
+        - name: fields
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: orderBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+      responses:
+        "200":
+          description: Return collection of the enrollments on an assessment offering.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessmentEnrollments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/assessmentEnrollment"
+        "404":
+          description: Assessment rostering is not available for this data store, or the parent resource was
+            not found.
+  /ims/oneroster/assessmentRostering/v1p0/assessmentEnrollments:
+    get:
+      tags:
+        - Assessment Rostering
+      summary: getAssessmentEnrollments
+      description: Return collection of assessment enrollments.
+      security:
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly
+      parameters:
+        - name: fields
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: orderBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+      responses:
+        "200":
+          description: Return collection of assessment enrollments.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessmentEnrollments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/assessmentEnrollment"
+        "404":
+          description: Assessment rostering is not available for this data store.
+  /ims/oneroster/assessmentRostering/v1p0/assessmentEnrollments/{id}:
+    get:
+      tags:
+        - Assessment Rostering
+      summary: getAssessmentEnrollment
+      description: Return specific assessment enrollment.
+      security:
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly
+        - oauth2_auth:
+            - https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessmentEnrollments]
+          x-source: getAssessmentEnrollments
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Return specific assessment enrollment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessmentEnrollment:
+                    $ref: "#/components/schemas/assessmentEnrollment"
+        "404":
+          description: Not found, not visible to the caller, or assessment rostering is not available for this
+            data store.
+components:
+  schemas:
+    assessment:
+      type: object
+      required:
+        - sourcedId
+        - status
+        - dateLastModified
+        - title
+        - identifier
+      properties:
+        sourcedId:
+          description: 9877728989-ABF-0001
+          type: string
+        status:
+          description: active
+          type: string
+          enum:
+            - active
+            - tobedeleted
+        dateLastModified:
+          description: 2012-04-23T18:25:43.511Z
+          type: string
+          format: date-time
+        metadata:
+          description: Ed-Fi values with no OneRoster field, under metadata.edfi
+          type: object
+        title:
+          description: Ed-Fi Assessment.assessmentTitle
+          type: string
+        identifier:
+          description: Ed-Fi Assessment.assessmentIdentifier (60 characters on Data Standard 5.2, 120 on 6.1)
+          type: string
+          maxLength: 120
+        version:
+          description: Ed-Fi Assessment.assessmentVersion
+          type: string
+        category:
+          description: Code value of the Ed-Fi assessment category descriptor
+          type: string
+        subjects:
+          description: Code values of the academic subject descriptors. Empty when there are none.
+          type: array
+          items:
+            type: string
+        grades:
+          description: Assessed grade levels, mapped as for users.grades. Empty when there are none.
+          type: array
+          items:
+            type: string
+        org:
+          description: The defining organization ("Defined by"). Absent when Ed-Fi has none, or when it is not
+            an organization OneRoster publishes; its Ed-Fi id is then in metadata.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /orgs/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: org
+              type: string
+              enum:
+                - org
+        course:
+          description: Linked course. Ed-Fi has no source, so absent in this version.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /courses/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: course
+              type: string
+              enum:
+                - course
+    assessmentOffering:
+      type: object
+      required:
+        - sourcedId
+        - status
+        - dateLastModified
+        - title
+        - assessment
+        - testingWindows
+      properties:
+        sourcedId:
+          description: 9877728989-ABF-0001
+          type: string
+        status:
+          description: active
+          type: string
+          enum:
+            - active
+            - tobedeleted
+        dateLastModified:
+          description: 2012-04-23T18:25:43.511Z
+          type: string
+          format: date-time
+        metadata:
+          description: Ed-Fi values with no OneRoster field, under metadata.edfi
+          type: object
+        title:
+          description: Ed-Fi AssessmentAdministration.administrationIdentifier
+          type: string
+        assessment:
+          description: The assessment this offering instantiates.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /assessments/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: assessment
+              type: string
+              enum:
+                - assessment
+        org:
+          description: The assigning organization ("Offered by"). Absent when it is not an organization
+            OneRoster publishes; its Ed-Fi id is then in metadata.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /orgs/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: org
+              type: string
+              enum:
+                - org
+        testingWindows:
+          description: One entry per Ed-Fi administration period, ordered by start date; never merged. Empty
+            when there are none.
+          type: array
+          items:
+            type: object
+            required:
+              - startDate
+            properties:
+              startDate:
+                description: 2021-12-01
+                type: string
+                format: date
+              endDate:
+                description: Null when the window is open-ended. 2021-12-01
+                type: string
+                format: date
+                nullable: true
+        class:
+          description: Linked class. Not filled in this version, because Ed-Fi has no source for it.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /classes/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: class
+              type: string
+              enum:
+                - class
+        academicSession:
+          description: Academic session. Not filled in this version, because Ed-Fi has no source for it.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /academicSessions/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: academicSession
+              type: string
+              enum:
+                - academicSession
+    assessmentEnrollment:
+      type: object
+      required:
+        - sourcedId
+        - status
+        - dateLastModified
+        - user
+        - assessmentOffering
+        - school
+        - role
+      properties:
+        sourcedId:
+          description: 9877728989-ABF-0001
+          type: string
+        status:
+          description: active
+          type: string
+          enum:
+            - active
+            - tobedeleted
+        dateLastModified:
+          description: 2012-04-23T18:25:43.511Z
+          type: string
+          format: date-time
+        metadata:
+          description: Ed-Fi values with no OneRoster field, under metadata.edfi
+          type: object
+        user:
+          description: The registered student, as in the users endpoint.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /users/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: user
+              type: string
+              enum:
+                - user
+        assessmentOffering:
+          description: The offering the student is registered for.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /assessmentOfferings/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: assessmentOffering
+              type: string
+              enum:
+                - assessmentOffering
+        school:
+          description: The school of the registration's student school association.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /orgs/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: org
+              type: string
+              enum:
+                - org
+        role:
+          description: Ed-Fi registers students only, so always student.
+          type: string
+          enum:
+            - student
+        beginDate:
+          description: Ed-Fi registrations have no dates, so absent.
+          type: string
+          format: date
+        endDate:
+          description: Ed-Fi registrations have no dates, so absent.
+          type: string
+          format: date

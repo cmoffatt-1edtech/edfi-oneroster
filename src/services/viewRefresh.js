@@ -76,6 +76,22 @@ export async function refreshView(knexInstance, view) {
   });
 }
 
+/**
+ * Whether a oneroster12 materialized view exists in this data store. Optional views (assessment
+ * rostering) are absent on Data Standard 4.0 and wherever they weren't deployed, and their
+ * refresh jobs skip those data stores rather than fail.
+ * @param {import('knex').Knex} knexInstance
+ * @param {string} view - a oneroster12 view name
+ * @returns {Promise<boolean>}
+ */
+export async function matviewExists(knexInstance, view) {
+  const { rows } = await knexInstance.raw(
+    "SELECT 1 FROM pg_matviews WHERE schemaname = 'oneroster12' AND matviewname = ?",
+    [view]
+  );
+  return rows.length > 0;
+}
+
 async function hasChangeTracking(knexInstance) {
   const { rows: [probe] } = await knexInstance.raw(
     `SELECT to_regprocedure('oneroster12.source_version(text)') IS NOT NULL

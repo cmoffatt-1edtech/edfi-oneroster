@@ -117,6 +117,26 @@ describe('discoveryController', () => {
     });
   });
 
+  describe('assessment rostering', () => {
+    test('is not advertised by default', () => {
+      delete process.env.ASSESSMENT_ROSTERING_ENABLED;
+      const res = createRes();
+      getDiscovery({ params: {} }, res);
+
+      expect(res.json.mock.calls[0][0].urls).not.toHaveProperty('assessmentRosteringApi');
+    });
+
+    test('is advertised after dataManagementApi when ASSESSMENT_ROSTERING_ENABLED=true', () => {
+      process.env.ASSESSMENT_ROSTERING_ENABLED = 'true';
+      const res = createRes();
+      getDiscovery({ params: {} }, res);
+
+      const { urls } = res.json.mock.calls[0][0];
+      expect(urls.assessmentRosteringApi).toBe('https://oneroster.example.org/ims/oneroster/assessmentRostering/v1p0/');
+      expect(Object.keys(urls)).toEqual(['openApiMetadata', 'swaggerUI', 'oauth', 'dataManagementApi', 'assessmentRosteringApi']);
+    });
+  });
+
   test('returns the version alongside the urls', () => {
     const res = createRes();
     getDiscovery({ params: {} }, res);
