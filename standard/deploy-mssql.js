@@ -186,7 +186,7 @@ async function checkPrerequisites(pool) {
     console.log('🔍 Checking prerequisites...\n');
 
     try {
-        // Check SQL Server version (need 2016+ for JSON support)
+        // Check SQL Server version (need 2017+: the artifacts use STRING_AGG)
         const versionResult = await pool.request().query(`
             SELECT
                 SERVERPROPERTY('ProductMajorVersion') as MajorVersion,
@@ -201,8 +201,8 @@ async function checkPrerequisites(pool) {
         console.log(`✅ Database: ${databaseName}`);
         console.log(`✅ SQL Server Version: ${majorVersion} (${versionString.split('\\n')[0]})`);
 
-        if (majorVersion < 13) {
-            throw new Error(`SQL Server 2016 or later is required for JSON support. Current version: ${majorVersion}`);
+        if (majorVersion < 14) {
+            throw new Error(`SQL Server 2017 or later is required (the OneRoster artifacts use STRING_AGG). Current major version: ${majorVersion}`);
         }
 
         // Check if this looks like an Ed-Fi database

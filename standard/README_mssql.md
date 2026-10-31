@@ -50,7 +50,7 @@ directory structure.
 
 ## Prerequisites
 
-- **SQL Server 2016 or later** (required for JSON support)
+- **SQL Server 2017 or later** (the artifacts use `STRING_AGG`, added in 2017)
 - **Ed-Fi ODS** with Data Standard 5.0 or later
 - **SQL Server Agent** service running (for automated refreshes)
 - **Database permissions** for creating schemas, tables, procedures, and jobs
@@ -258,7 +258,7 @@ ORDER BY migs.avg_user_impact DESC;
 
 4. **JSON Errors**
    - Symptom: JSON-related errors during refresh
-   - Solution: Ensure SQL Server 2016+ and check for data issues
+   - Solution: Ensure SQL Server 2017+ and check for data issues
 
 ### Refresh Failures
 
@@ -310,7 +310,7 @@ The `deploy.js` script provides enterprise-grade deployment capabilities:
 
 ### Features
 
-- **Prerequisites Checking**: Validates SQL Server version (2016+), Ed-Fi schema presence, and SQL Server Agent status
+- **Prerequisites Checking**: Validates SQL Server version (2017+), Ed-Fi schema presence, and SQL Server Agent status
 - **Phased Deployment**:
 
   - Phase 1: Foundation (schema, descriptors, mappings)
