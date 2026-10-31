@@ -167,7 +167,8 @@ the assigning organization.
 - Synthetic data: `tests/dms-parity-fixture.js` (assessment data, a second district, a service
   center outside `orgs`), checked by `tests/compare-dms-fixture.sh` on both platforms and by
   `tests/assessment-auth-matrix.sh`, which runs the query service per caller against
-  `ASSESSMENT_VISIBILITY` in a rolled-back transaction.
+  `ASSESSMENT_VISIBILITY` in a rolled-back transaction (on SQL Server:
+  `assessment-auth-matrix.js --engine mssql`, with `tests/mssql-fixture-loader.js`).
 - Parity: `compare-dms-database.sh` and `compare-dms-engines.js` include the views;
   `compare-api.js ods-vs-dms | dms-record --assessment-rostering`.
 - Bruno: `tests/bruno/tests-assessment` with `environments/assessment-ods.bru` or
@@ -178,10 +179,8 @@ the assigning organization.
   visible to the same caller. The fixture pins the code-point order of local subject codes.
 - `tests/href-integrity.js` checks the assessment links (user, offering, assessment, school, org) at
   the database level.
-- Not covered yet: the authorization matrix on SQL Server (the filters are the same compiled SQL,
-  checked in unit tests and against PostgreSQL through the API for three callers); keys that differ
-  only in case (a documented limitation); an automated run of `deploy-mssql.js` and the README's
-  manual deploy (checked by hand in phase 6).
+- Not covered yet: keys that differ only in case (a documented limitation); an automated run of
+  `deploy-mssql.js` and the README's manual deploy (checked by hand in phase 6).
 
 ## End-user docs to update (Ed-Fi docs repo, not edited here)
 
