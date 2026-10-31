@@ -17,11 +17,18 @@ This directory contains Bruno collections and scripts for running end-to-end
 - `tests-dms/` — authorization and routing checks for Ed-Fi API v8 (DMS); see `run-bruno-dms.ps1`
 - `tests-assessment/` — the provisional assessment rostering endpoints. Not part of `tests/`,
   which runs with the service off. Needs `ASSESSMENT_ROSTERING_ENABLED=true`, the Grand Bend
-  sample, and a client for school 255901001 (`ASSESSMENT_SCHOOL_KEY` / `ASSESSMENT_SCHOOL_SECRET`):
-  `bru run tests-assessment -r --env-file environments/assessment-ods.bru` (or `assessment-dms.bru`)
+  sample, and a client for school 255901001 (`ASSESSMENT_SCHOOL_KEY` / `ASSESSMENT_SCHOOL_SECRET`),
+  which `create-assessment-clients.py` creates on both stacks (credentials in the git-ignored
+  `.env.assessment-clients`, mode 600). `run-bruno-ods.ps1 -Folders tests-assessment` runs it on the
+  ODS stack; by hand: `bru run tests-assessment -r --env-file environments/assessment-ods.bru` (or
+  `assessment-dms.bru`)
 - `environments/` — Bruno environment files (e.g., `ci.bru`)
-- `run-bruno-e2e.ps1` — PowerShell script to automate environment setup, health
-  checks, test execution, and cleanup
+- `run-bruno-ods.ps1` — runs `tests` (and `tests-assessment`) against an ODS stack that is already
+  running, with the credentials from the stack's env file. Use this one locally.
+- `run-bruno-dms.ps1` — the same for the Ed-Fi API v8 (DMS) stack
+- `run-bruno-e2e.ps1` — the CI script: sets up the stack, runs the tests, and always ends with
+  `stop-services.ps1 -Purge`, which removes the stack's volumes and images, and it prints the
+  client credentials. Don't point it at a stack you want to keep.
 
 ## How to Run the E2E Tests
 

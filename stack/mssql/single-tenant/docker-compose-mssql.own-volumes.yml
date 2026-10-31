@@ -1,0 +1,17 @@
+# Gives the SQL Server stack its own volume names. docker-compose-mssql.yml names its volumes
+# vol-db-ods and vol-db-admin, the same as the PostgreSQL stack's, so starting it after the
+# PostgreSQL stack would mount the PostgreSQL databases into SQL Server. Use it with docker compose
+# directly (start-services.ps1 takes no extra compose file):
+#   docker compose -p oneroster-ods-mssql -f mssql/single-tenant/docker-compose-mssql.yml \
+#     -f mssql/single-tenant/docker-compose-mssql.own-volumes.yml --env-file mssql/.env.5.2.0 \
+#     up -d --build db-ods db-admin ods-api nginx oneroster-api
+# For another Data Standard, use another project name (-p) and change the names below.
+volumes:
+  vol-db-admin:
+    name: vol-mssql-db-admin
+  vol-db-ods:
+    name: vol-mssql-db-ods
+  vol-db-ods-logs:
+    name: vol-mssql-db-ods-logs
+  vol-db-admin-logs:
+    name: vol-mssql-db-admin-logs
