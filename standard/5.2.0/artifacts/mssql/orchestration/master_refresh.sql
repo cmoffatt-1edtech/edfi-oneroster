@@ -187,10 +187,13 @@ BEGIN
     PRINT '';
     PRINT '=== Current Row Counts ===';
 
-    DECLARE @RowCountQuery NVARCHAR(MAX) = '';
-    SELECT @RowCountQuery = @RowCountQuery +
-        'SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name +
-        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 7 THEN ' UNION ALL ' ELSE '' END
+    -- STRING_AGG ... WITHIN GROUP fixes the order of the pieces. Appending to a
+    -- variable in a SELECT does not guarantee row order, so the UNION ALL
+    -- separators could land in the wrong place.
+    DECLARE @RowCountQuery NVARCHAR(MAX);
+    SELECT @RowCountQuery = STRING_AGG(
+        CAST('SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name AS NVARCHAR(MAX)),
+        ' UNION ALL ') WITHIN GROUP (ORDER BY table_name)
     FROM (VALUES
         ('academicsessions'), ('classes'), ('courses'), ('demographics'),
         ('enrollments'), ('orgs'), ('users')
@@ -256,10 +259,13 @@ BEGIN
     PRINT '';
     PRINT '=== Current Row Counts ===';
 
-    DECLARE @RowCountQuery NVARCHAR(MAX) = '';
-    SELECT @RowCountQuery = @RowCountQuery +
-        'SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name +
-        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 7 THEN ' UNION ALL ' ELSE '' END
+    -- STRING_AGG ... WITHIN GROUP fixes the order of the pieces. Appending to a
+    -- variable in a SELECT does not guarantee row order, so the UNION ALL
+    -- separators could land in the wrong place.
+    DECLARE @RowCountQuery NVARCHAR(MAX);
+    SELECT @RowCountQuery = STRING_AGG(
+        CAST('SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name AS NVARCHAR(MAX)),
+        ' UNION ALL ') WITHIN GROUP (ORDER BY table_name)
     FROM (VALUES
         ('academicsessions'), ('classes'), ('courses'), ('demographics'),
         ('enrollments'), ('orgs'), ('users')
