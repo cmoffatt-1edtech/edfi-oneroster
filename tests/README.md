@@ -345,7 +345,8 @@ Grand Bend leaves many branches of the views unexercised. This loads the synthet
 the fixture's rows across platforms, checks them against the expected values in the fixture, and
 rolls both databases back. It needs the same superuser settings as the database parity check,
 and it doesn't refresh or lock the materialized views. Expected: `FIXTURE PARITY: 0 problem(s)`
-and `56/56` expectations on each platform.
+across 11 views and `83/83` expectations on each platform (the seven rostering views and the four
+assessment rostering views).
 
 ## Development Scripts
 

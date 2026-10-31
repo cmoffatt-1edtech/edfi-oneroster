@@ -7,6 +7,7 @@ import { describe, test, expect } from '@jest/globals';
 import fs from 'fs';
 import path from 'path';
 import { ASSESSMENT_VIEWS } from '../../src/config/assessment-rostering.js';
+import { selectArtifactFiles } from '../../standard/assessment-artifacts.js';
 
 // The assessment rostering artifacts as committed: every set that has them defines all four
 // objects; Data Standard 4.0 has none (no assessment registration data).
@@ -66,3 +67,34 @@ describe.each(['pgsql', 'mssql'])('standard/4.0.0/artifacts/%s', set => {
     for (const file of FILES) expect([file, exists('4.0.0', set, file)]).toEqual([file, false]);
   });
 });
+
+// The deploy scripts leave the assessment files out where the database can't take them, so the
+// rostering views still deploy on Data Standard 5.0 and 5.1 (which use the 5.2.0 artifacts)
+describe('selectArtifactFiles', () => {
+  const files = ['core/academic_sessions.sql', 'core/assessment_auth_orgs.sql', 'core/assessments.sql', 'core/classes.sql',
+    'orchestration/master_refresh.sql'];
+  const rostering = ['core/academic_sessions.sql', 'core/classes.sql', 'orchestration/master_refresh.sql'];
+
+  test('keeps every file on Data Standard 5.2 and later', () => {
+    expect(selectArtifactFiles(files, { hasAssessmentRegistration: true })).toEqual({ files, skipped: [], reason: null });
+    expect(selectArtifactFiles(files, { hasAssessmentRegistration: true, sqlServerMajorVersion: 16 }).files).toEqual(files);
+  });
+
+  test('leaves the assessment files out without the Assessment Registration tables', () => {
+    const selected = selectArtifactFiles(files, { hasAssessmentRegistration: false });
+    expect(selected.files).toEqual(rostering);
+    expect(selected.skipped).toEqual(['core/assessment_auth_orgs.sql', 'core/assessments.sql']);
+    expect(selected.reason).toMatch(/Data Standard before 5\.2/);
+  });
+
+  test('leaves them out on SQL Server before 2019', () => {
+    const selected = selectArtifactFiles(files, { hasAssessmentRegistration: true, sqlServerMajorVersion: 14 });
+    expect(selected.files).toEqual(rostering);
+    expect(selected.reason).toBe('SQL Server 14 is older than 2019');
+  });
+
+  test('reports nothing when there are no assessment files (Data Standard 4.0)', () => {
+    expect(selectArtifactFiles(rostering, { hasAssessmentRegistration: false })).toEqual({ files: rostering, skipped: [], reason: null });
+  });
+});
+

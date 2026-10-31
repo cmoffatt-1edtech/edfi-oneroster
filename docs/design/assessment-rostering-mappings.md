@@ -154,7 +154,12 @@ the assigning organization.
 - SQL Server: tables filled by `oneroster12.sp_refresh_<view>`, run by `sp_refresh_all` (the Agent
   job) after the rostering tables; it skips an assessment table whose procedure isn't deployed.
   `deploy-mssql.js` refreshes them after a deploy, and deploys the assessment files only on SQL Server
-  2019 or later (they use a UTF-8 collation to hash).
+  2019 or later (they use a UTF-8 collation to hash). `deploy-dms.js` has no such check; DMS on SQL
+  Server runs 2022 in the reference stack.
+- Data Standard 5.0 and 5.1 deploy the 5.2.0 artifacts but have no Assessment Registration tables (the
+  domain is new in 5.2). Every deployer (`setup-oneroster-data.psm1`, `deploy-pgsql.js`,
+  `deploy-postgres.sh`, `deploy-mssql.js`) checks for `edfi.AssessmentAdministration` and leaves the
+  `assessment*` files out without it; the rule is in `standard/assessment-artifacts.js`.
 
 ## Tests
 
@@ -174,8 +179,8 @@ the assigning organization.
 
 ## End-user docs to update (Ed-Fi docs repo, not edited here)
 
-Under `docs/reference/11-oneroster/` in `Ed-Fi-Alliance-OSS/ed-fi-alliance-oss.github.io` (the
-repository's CLAUDE.md still names the old `3-oneroster` folder):
+Under `docs/reference/3-oneroster/` in `Ed-Fi-Alliance-OSS/ed-fi-alliance-oss.github.io` (moved there
+from `11-oneroster` in May 2026):
 
 - `configuration/environment-variables.md`: `ASSESSMENT_ROSTERING_ENABLED`.
 - `configuration/oauth-and-jwt.md`: the assessment endpoints take `roster.readonly` or

@@ -74,8 +74,7 @@ paths:
                     items:
                       $ref: "#/components/schemas/assessment"
         "404":
-          description: Assessment rostering is not available for this data store, or the parent resource was
-            not found.
+          description: Assessment rostering is not available for this data store.
   /ims/oneroster/assessmentRostering/v1p0/assessments/{id}:
     get:
       tags:
@@ -239,8 +238,7 @@ paths:
                     items:
                       $ref: "#/components/schemas/assessmentOffering"
         "404":
-          description: Assessment rostering is not available for this data store, or the parent resource was
-            not found.
+          description: Assessment rostering is not available for this data store.
   /ims/oneroster/assessmentRostering/v1p0/assessmentOfferings/{id}:
     get:
       tags:
@@ -404,8 +402,7 @@ paths:
                     items:
                       $ref: "#/components/schemas/assessmentEnrollment"
         "404":
-          description: Assessment rostering is not available for this data store, or the parent resource was
-            not found.
+          description: Assessment rostering is not available for this data store.
   /ims/oneroster/assessmentRostering/v1p0/assessmentEnrollments/{id}:
     get:
       tags:
@@ -618,7 +615,7 @@ components:
                 format: date
                 nullable: true
         class:
-          description: Linked class. Absent in this version (open question Q4).
+          description: Linked class. Not filled in this version, because Ed-Fi has no source for it.
           type: object
           nullable: true
           required:
@@ -638,7 +635,7 @@ components:
               enum:
                 - class
         academicSession:
-          description: Academic session. Absent in this version (open question Q5).
+          description: Academic session. Not filled in this version, because Ed-Fi has no source for it.
           type: object
           nullable: true
           required:

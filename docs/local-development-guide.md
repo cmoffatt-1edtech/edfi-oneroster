@@ -489,8 +489,8 @@ node tests/compare-api.js --auth
 ## Running against Ed-Fi API v8 (DMS)
 
 The steps above are for the Ed-Fi ODS/API 7.x. With `PLATFORM=dms` the service
-serves OneRoster from Ed-Fi API v8, the Data Management Service, on PostgreSQL
-and Data Standard 5.2. Three things differ:
+serves OneRoster from Ed-Fi API v8, the Data Management Service, on PostgreSQL or
+SQL Server and Data Standard 5.2 or 6.1. Three things differ:
 
 - **Tokens** come from the DMS Configuration Service (or Keycloak). Set
   `OAUTH2_ISSUER`, `OAUTH2_AUDIENCE`, and `OAUTH2_JWKS_URL` or

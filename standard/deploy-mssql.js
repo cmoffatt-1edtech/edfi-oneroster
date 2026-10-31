@@ -22,6 +22,7 @@ import { spawn } from 'child_process';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { buildMssqlTlsOptionsFromEnv } from '../src/config/mssql-tls.js';
+import { ASSESSMENT_REGISTRATION_QUERY, selectArtifactFiles } from './assessment-artifacts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -218,9 +219,12 @@ async function checkPrerequisites(pool) {
             console.log('⚠️  WARNING: No "edfi" schema found. Ensure this is an Ed-Fi ODS database.');
         }
 
+        const assessmentCheck = await pool.request().query(ASSESSMENT_REGISTRATION_QUERY.mssql);
+        const hasAssessmentRegistration = assessmentCheck.recordset[0].present === 1;
+
         console.log('');
 
-        return majorVersion;
+        return { majorVersion, hasAssessmentRegistration };
 
     } catch (err) {
         console.error('❌ Prerequisites check failed:', err.message);
@@ -228,18 +232,13 @@ async function checkPrerequisites(pool) {
     }
 }
 
-// Assessment rostering hashes its sourcedIds as UTF-8 (COLLATE ..._UTF8), which needs SQL Server 2019
-// (major version 15). On an older server its files are left out: the rostering tables deploy as before,
-// sp_refresh_all skips the missing procedures, and the assessment endpoints answer "not available".
-const ASSESSMENT_MIN_MAJOR_VERSION = 15;
-
-function filesForServer(files, majorVersion) {
-    if (majorVersion >= ASSESSMENT_MIN_MAJOR_VERSION) return files;
-    const skipped = files.filter(file => path.basename(file).startsWith('assessment'));
-    if (skipped.length > 0) {
-        console.log(`⚠️  SQL Server ${majorVersion} is older than 2019: skipping the assessment rostering files (${skipped.map(file => path.basename(file)).join(', ')})\n`);
+// Leaves out the assessment rostering files where the database can't take them (assessment-artifacts.js)
+function filesForServer(files, { majorVersion, hasAssessmentRegistration }) {
+    const selected = selectArtifactFiles(files, { hasAssessmentRegistration, sqlServerMajorVersion: majorVersion });
+    if (selected.reason) {
+        console.log(`⚠️  Skipping the assessment rostering files (${selected.skipped.map(file => path.basename(file)).join(', ')}): ${selected.reason}\n`);
     }
-    return files.filter(file => !skipped.includes(file));
+    return selected.files;
 }
 
 async function runDataRefresh() {
@@ -285,12 +284,12 @@ async function deploy() {
         console.log('✅ Connected successfully\\n');
 
         // Check prerequisites
-        const majorVersion = await checkPrerequisites(pool);
+        const server = await checkPrerequisites(pool);
 
         let successCount = 0;
         let failCount = 0;
 
-        for (const filename of filesForServer(sqlFiles, majorVersion)) {
+        for (const filename of filesForServer(sqlFiles, server)) {
             console.log('Executing file:', path.basename(filename));
             const success = await executeSQLFile(pool, filename);
             if (success) {

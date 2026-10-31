@@ -51,7 +51,7 @@ directory structure.
 ## Prerequisites
 
 - **SQL Server 2016 or later** (required for JSON support)
-- **SQL Server 2019 or later** for assessment rostering (UTF-8 collations hash its sourcedIds); on an older server `deploy-mssql.js` skips those files and the assessment endpoints answer "not available"
+- **SQL Server 2019 or later** for assessment rostering (UTF-8 collations hash its sourcedIds), and Data Standard 5.2 or later (the Assessment Registration domain); otherwise `deploy-mssql.js` skips those files and the assessment endpoints answer "not available"
 - **Ed-Fi ODS** with Data Standard 5.0 or later
 - **SQL Server Agent** service running (for automated refreshes)
 - **Database permissions** for creating schemas, tables, procedures, and jobs
@@ -81,7 +81,7 @@ The Node.js deployment script provides:
 If you prefer manual execution, run each SQL file in this order:
 
 1. Foundation: `00_setup.sql`, `01_descriptors.sql`, `02_descriptorMappings.sql`
-2. Core (includes tables and indexes): `academic_sessions.sql`, `orgs.sql`, `courses.sql`, `classes.sql`, `demographics.sql`, `users.sql`, `enrollments.sql`; on Data Standard 5.2 and 6.1 also the assessment rostering files `assessments.sql`, `assessment_offerings.sql`, `assessment_enrollments.sql`, `assessment_auth_orgs.sql` (SQL Server 2019 or later; `sp_refresh_all` skips them when they aren't deployed)
+2. Core (includes tables and indexes): `academic_sessions.sql`, `orgs.sql`, `courses.sql`, `classes.sql`, `demographics.sql`, `users.sql`, `enrollments.sql`; on Data Standard 5.2 and 6.1 (not 5.0 or 5.1, which have no Assessment Registration tables) also the assessment rostering files `assessments.sql`, `assessment_offerings.sql`, `assessment_enrollments.sql`, `assessment_auth_orgs.sql` (SQL Server 2019 or later; `sp_refresh_all` skips them when they aren't deployed)
 3. Orchestration: `master_refresh.sql`, `sql_agent_job.sql`
 
 ### 2. Populate Data Tables
