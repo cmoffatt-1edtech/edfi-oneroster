@@ -15,8 +15,10 @@ DECLARE @DatabaseName SYSNAME = DB_NAME();
 
 USE [msdb];
 
--- Create OneRoster refresh job
-DECLARE @JobName NVARCHAR(128) = 'OneRoster 1.2 Daily Refresh';
+-- Create OneRoster refresh job. One job per ODS database: a server can hold several (one per school
+-- year, or per tenant), and a shared job name would keep only the last one deployed on a schedule.
+DECLARE @JobName NVARCHAR(128) = N'OneRoster 1.2 Daily Refresh (' + LEFT(@DatabaseName, 80) + N')';
+DECLARE @LegacyJobName NVARCHAR(128) = N'OneRoster 1.2 Daily Refresh';
 DECLARE @JobDescription NVARCHAR(512) = 'Daily automated refresh of all OneRoster 1.2 tables from Ed-Fi ODS';
 
 -- Delete existing job if it exists
@@ -24,6 +26,17 @@ IF EXISTS (SELECT job_id FROM msdb.dbo.sysjobs WHERE name = @JobName)
 BEGIN
     PRINT 'Removing existing job: ' + @JobName;
     EXEC msdb.dbo.sp_delete_job @job_name = @JobName, @delete_unused_schedule = 1;
+END;
+
+-- Earlier versions created one job for the whole server. Remove it when it refreshes this database;
+-- leave it if it refreshes another one, which still needs it until that database is redeployed.
+IF EXISTS (SELECT 1 FROM msdb.dbo.sysjobs j
+           WHERE j.name = @LegacyJobName
+             AND NOT EXISTS (SELECT 1 FROM msdb.dbo.sysjobsteps s
+                             WHERE s.job_id = j.job_id AND s.database_name <> @DatabaseName))
+BEGIN
+    PRINT 'Removing job from an earlier version: ' + @LegacyJobName;
+    EXEC msdb.dbo.sp_delete_job @job_name = @LegacyJobName, @delete_unused_schedule = 1;
 END;
 
 PRINT 'Creating SQL Server Agent job: ' + @JobName;
@@ -160,12 +173,10 @@ PRINT '  -- Disable/Enable job:';
 PRINT '  EXEC msdb.dbo.sp_update_job @job_name = ''' + @JobName + ''', @enabled = 0; -- Disable';
 PRINT '  EXEC msdb.dbo.sp_update_job @job_name = ''' + @JobName + ''', @enabled = 1; -- Enable';
 
-GO
-
--- Test the job by running it once manually (optional)
+-- Test the job by running it once manually (optional). Same batch, so @JobName is still in scope.
 PRINT '';
 PRINT 'Testing job execution...';
-EXEC msdb.dbo.sp_start_job @job_name = 'OneRoster 1.2 Daily Refresh';
+EXEC msdb.dbo.sp_start_job @job_name = @JobName;
 
 -- Wait a moment and check results
 WAITFOR DELAY '00:00:05'; -- Wait 5 seconds
@@ -190,7 +201,7 @@ SELECT TOP 3
     RIGHT('00' + CAST(h.run_duration % 100 AS VARCHAR(2)), 2) AS duration
 FROM msdb.dbo.sysjobs j
 INNER JOIN msdb.dbo.sysjobhistory h ON j.job_id = h.job_id
-WHERE j.name = 'OneRoster 1.2 Daily Refresh'
+WHERE j.name = @JobName
 ORDER BY h.run_date DESC, h.run_time DESC;
 GO
 
