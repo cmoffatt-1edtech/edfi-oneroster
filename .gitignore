@@ -26,3 +26,6 @@ junit.xml
 # Ignore generated test data
 testData/
 tests/.dms-compare/
+
+# Cached DMS tokens (stack/dms/dms-token.sh)
+stack/dms/.tokens/
