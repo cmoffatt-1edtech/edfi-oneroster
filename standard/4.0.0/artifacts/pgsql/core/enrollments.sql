@@ -64,8 +64,8 @@ staff_enrollments_formatted as (
         -- oneroster12/ClassroomPositionDescriptor crosswalk (e.g. 'Teacher of Record' => TRUE).
         -- Unmapped or missing positions default to 'false'.
         lower(coalesce(mappedclassroomposition.mappedvalue, 'FALSE')) as "primary",
-        ssa.beginDate::text as "beginDate",
-        ssa.endDate::text as "endDate",
+        to_char(ssa.beginDate, 'YYYY-MM-DD') as "beginDate",
+        to_char(ssa.endDate, 'YYYY-MM-DD') as "endDate",
         json_build_object(
             'edfi', json_build_object(
                 'resource', 'staffSectionAssociations',
@@ -105,7 +105,7 @@ student_enrollments_formatted as (
             '-', sections.schoolyear::varchar,
             '-', lower(sections.sectionidentifier)::varchar,
             '-', lower(sections.sessionname)::varchar,
-            '-', beginDate::varchar
+            '-', to_char(beginDate, 'YYYY-MM-DD') -- fixed format; ::varchar would follow the session DateStyle
         )) as "sourcedId", -- unique ID constructed from natural key of Ed-Fi StudentSectionAssociations
         'active' as "status",
         ssa.lastmodifieddate as "dateLastModified",
@@ -140,8 +140,8 @@ student_enrollments_formatted as (
         ssa.studentusi as "participantUSI",
         'student' as "role",
         'false' as "primary",
-        ssa.beginDate::text as "beginDate",
-        ssa.endDate::text as "endDate",
+        to_char(ssa.beginDate, 'YYYY-MM-DD') as "beginDate",
+        to_char(ssa.endDate, 'YYYY-MM-DD') as "endDate",
         json_build_object(
             'edfi', json_build_object(
                 'resource', 'studentSectionAssociations',

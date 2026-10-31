@@ -28,7 +28,7 @@ staff_enrollments_formatted as (
             '-', ssa."Section_SchoolYear"::varchar,
             '-', lower(ssa."Section_SectionIdentifier")::varchar,
             '-', lower(ssa."Section_SessionName")::varchar,
-            '-', ssa."BeginDate"::varchar
+            '-', to_char(ssa."BeginDate", 'YYYY-MM-DD') -- fixed format; ::varchar would follow the session DateStyle
         )) as "sourcedId", -- unique ID constructed from natural key of Ed-Fi StaffSectionAssociations
         'active' as "status",
         (ssa."ContentLastModifiedAt" at time zone 'UTC') as "dateLastModified",
@@ -66,8 +66,8 @@ staff_enrollments_formatted as (
         -- oneroster12/ClassroomPositionDescriptor crosswalk (e.g. 'Teacher of Record' => TRUE).
         -- Unmapped or missing positions default to 'false'.
         lower(coalesce(mappedclassroomposition."MappedValue", 'FALSE')) as "primary",
-        ssa."BeginDate"::text as "beginDate",
-        ssa."EndDate"::text as "endDate",
+        to_char(ssa."BeginDate", 'YYYY-MM-DD') as "beginDate",
+        to_char(ssa."EndDate", 'YYYY-MM-DD') as "endDate",
         json_build_object(
             'edfi', json_build_object(
                 'resource', 'staffSectionAssociations',
@@ -99,7 +99,7 @@ student_enrollments_formatted as (
             '-', ssa."Section_SchoolYear"::varchar,
             '-', lower(ssa."Section_SectionIdentifier")::varchar,
             '-', lower(ssa."Section_SessionName")::varchar,
-            '-', ssa."BeginDate"::varchar
+            '-', to_char(ssa."BeginDate", 'YYYY-MM-DD')
         )) as "sourcedId", -- unique ID constructed from natural key of Ed-Fi StudentSectionAssociations
         'active' as "status",
         (ssa."ContentLastModifiedAt" at time zone 'UTC') as "dateLastModified",
@@ -134,8 +134,8 @@ student_enrollments_formatted as (
         ssa."Student_DocumentId" as "participantDocumentId",
         'student' as "role",
         'false' as "primary",
-        ssa."BeginDate"::text as "beginDate",
-        ssa."EndDate"::text as "endDate",
+        to_char(ssa."BeginDate", 'YYYY-MM-DD') as "beginDate",
+        to_char(ssa."EndDate", 'YYYY-MM-DD') as "endDate",
         json_build_object(
             'edfi', json_build_object(
                 'resource', 'studentSectionAssociations',
