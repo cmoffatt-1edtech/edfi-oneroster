@@ -33,6 +33,73 @@ seas as (
         (e."ContentLastModifiedAt" at time zone 'UTC') as lastModifiedDate
     from edfi."StateEducationAgency" e
 ),
+-- Optional org fields (provisional, WS2 shortlist; names as in ClassLink's metadata list): the NCES
+-- and state identifiers, the physical address and the main phone. A key is left out when Ed-Fi has
+-- no value; ties go to the lowest value by code point, the same on every engine.
+org_documents as (
+    select "DocumentId" as documentid, "SchoolId" as educationorganizationid from edfi."School"
+    union all
+    select "DocumentId", "LocalEducationAgencyId" from edfi."LocalEducationAgency"
+    union all
+    select "DocumentId", "StateEducationAgencyId" from edfi."StateEducationAgency"
+),
+org_codes as (
+    select c.documentid,
+        min(c.code collate "C") filter (where d."CodeValue" = 'NCES') as nces_id,
+        min(c.code collate "C") filter (where d."CodeValue" = 'SEA') as state_id
+    from (
+        select "School_DocumentId" as documentid, "EducationOrganizationIdentificationSystemDescriptor__f63fb21ede" as descriptorid, "IdentificationCode" as code from edfi."SchoolIdentificationCode"
+        union all
+        select "LocalEducationAgency_DocumentId", "EducationOrganizationIdentificationSystemDescriptor__f63fb21ede", "IdentificationCode" from edfi."LocalEducationAgencyIdentificationCode"
+        union all
+        select "StateEducationAgency_DocumentId", "EducationOrganizationIdentificationSystemDescriptor__f63fb21ede", "IdentificationCode" from edfi."StateEducationAgencyIdentificationCode"
+    ) c
+        join dms."Descriptor" d on d."DescriptorId" = c.descriptorid
+    group by c.documentid
+),
+org_address as (
+    select distinct on (a.documentid)
+        a.documentid, a.streetnumbername, a.apartmentroomsuitenumber, a.city, s."CodeValue" as state, a.postalcode
+    from (
+        select "School_DocumentId" as documentid, "AddressTypeDescriptor_DescriptorId" as typeid, "StateAbbreviationDescriptor_DescriptorId" as stateid,
+            "StreetNumberName" as streetnumbername, "ApartmentRoomSuiteNumber" as apartmentroomsuitenumber, "City" as city, "PostalCode" as postalcode
+        from edfi."SchoolAddress"
+        union all
+        select "LocalEducationAgency_DocumentId", "AddressTypeDescriptor_DescriptorId", "StateAbbreviationDescriptor_DescriptorId",
+            "StreetNumberName", "ApartmentRoomSuiteNumber", "City", "PostalCode"
+        from edfi."LocalEducationAgencyAddress"
+        union all
+        select "StateEducationAgency_DocumentId", "AddressTypeDescriptor_DescriptorId", "StateAbbreviationDescriptor_DescriptorId",
+            "StreetNumberName", "ApartmentRoomSuiteNumber", "City", "PostalCode"
+        from edfi."StateEducationAgencyAddress"
+    ) a
+        join dms."Descriptor" t on t."DescriptorId" = a.typeid and t."CodeValue" = 'Physical'
+        left join dms."Descriptor" s on s."DescriptorId" = a.stateid
+    order by a.documentid, a.streetnumbername collate "C", a.city collate "C", a.postalcode collate "C"
+),
+org_phone as (
+    select p.documentid, min(p.telephonenumber collate "C") as phone
+    from (
+        select "School_DocumentId" as documentid, "InstitutionTelephoneNumberTypeDescriptor_DescriptorId" as typeid, "TelephoneNumber" as telephonenumber from edfi."SchoolInstitutionTelephone"
+        union all
+        select "LocalEducationAgency_DocumentId", "InstitutionTelephoneNumberTypeDescriptor_DescriptorId", "TelephoneNumber" from edfi."LocalEducationAgencyInstitutionTelephone"
+        union all
+        select "StateEducationAgency_DocumentId", "InstitutionTelephoneNumberTypeDescriptor_DescriptorId", "TelephoneNumber" from edfi."StateEducationAgencyInstitutionTelephone"
+    ) p
+        join dms."Descriptor" d on d."DescriptorId" = p.typeid and d."CodeValue" = 'Main'
+    group by p.documentid
+),
+org_extras as (
+    select o.educationorganizationid, jsonb_strip_nulls(jsonb_build_object(
+        'NCESId', codes.nces_id, 'orgStateId', codes.state_id,
+        'address1', address.streetnumbername, 'address2', address.apartmentroomsuitenumber, 'city', address.city,
+        'state', address.state, 'postalCode', address.postalcode, 'phone', phone.phone
+    )) as extras
+    from org_documents o
+        left join org_codes codes on codes.documentid = o.documentid
+        left join org_address address on address.documentid = o.documentid
+        left join org_phone phone on phone.documentid = o.documentid
+),
 schools_formatted as (
     select
         md5(schools.schoolId::text) as "sourcedId",
@@ -48,13 +115,14 @@ schools_formatted as (
         ) else null end as "parent",
         null::json as "children",
         schoolId as "educationOrganizationId",
-        json_build_object(
-            'edfi', json_build_object(
+        (jsonb_build_object(
+            'edfi', jsonb_build_object(
                 'resource', 'schools',
-                'naturalKey', json_build_object('schoolId', schoolId)
+                'naturalKey', jsonb_build_object('schoolId', schoolId)
             )
-        ) as metadata
+        ) || coalesce(x.extras, '{}'::jsonb))::json as metadata
     from schools
+        left join org_extras x on x.educationorganizationid = schools.schoolId
 ),
 leas_formatted as (
     select
@@ -81,13 +149,14 @@ leas_formatted as (
             where s.localEducationAgencyId = leas.localEducationAgencyId
         ) as "children",
         localEducationAgencyId as "educationOrganizationId",
-        json_build_object(
-            'edfi', json_build_object(
+        (jsonb_build_object(
+            'edfi', jsonb_build_object(
                 'resource', 'localEducationAgencies',
-                'naturalKey', json_build_object('localEducationAgencyId', localEducationAgencyId)
+                'naturalKey', jsonb_build_object('localEducationAgencyId', localEducationAgencyId)
             )
-        ) as metadata
+        ) || coalesce(x.extras, '{}'::jsonb))::json as metadata
     from leas
+        left join org_extras x on x.educationorganizationid = leas.localEducationAgencyId
 ),
 seas_formatted as (
     select
@@ -110,13 +179,14 @@ seas_formatted as (
             where l.stateEducationAgencyId = seas.stateEducationAgencyId
         ) as "children",
         stateEducationAgencyId as "educationOrganizationId",
-        json_build_object(
-            'edfi', json_build_object(
+        (jsonb_build_object(
+            'edfi', jsonb_build_object(
                 'resource', 'stateEducationAgencies',
-                'naturalKey', json_build_object('stateEducationAgencyId', stateEducationAgencyId)
+                'naturalKey', jsonb_build_object('stateEducationAgencyId', stateEducationAgencyId)
             )
-        ) as metadata
+        ) || coalesce(x.extras, '{}'::jsonb))::json as metadata
     from seas
+        left join org_extras x on x.educationorganizationid = seas.stateEducationAgencyId
 )
 select * from schools_formatted
 union all

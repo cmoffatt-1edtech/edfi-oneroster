@@ -15,6 +15,7 @@ with course as (
         c."EducationOrganization_EducationOrganizationId" as educationOrganizationId,
         c."CourseCode" as coursecode,
         c."CourseTitle" as coursetitle,
+        c."DocumentId" as documentid,
         (c."ContentLastModifiedAt" at time zone 'UTC') as lastmodifieddate
     from edfi."Course" c
 ),
@@ -29,6 +30,14 @@ course_offerings as (
         max("Session_SchoolYear") as schoolyear
     from edfi."CourseOffering"
     group by "Course_EducationOrganizationId", "Course_CourseCode"
+),
+-- Optional course field (provisional, WS2 shortlist; ClassLink's metadata name): the state course
+-- code, left out when Ed-Fi has none; ties go to the lowest by code point
+state_codes as (
+    select c."Course_DocumentId" as documentid, min(c."IdentificationCode" collate "C") as state_code
+    from edfi."CourseIdentificationCode" c
+        join dms."Descriptor" d on d."DescriptorId" = c."CourseIdentificationSystemDescriptor_DescriptorId" and d."CodeValue" = 'State course code'
+    group by c."Course_DocumentId"
 )
 -- property documentation at
 -- https://www.imsglobal.org/sites/default/files/spec/oneroster/v1p2/rostering-restbinding/OneRosterv1p2RosteringService_RESTBindv1p0.html#Main6p8p2
@@ -65,17 +74,19 @@ select
     ) as "org",
     -- required to be SCED codes, not generally available
     null as "subjectCodes",
-    json_build_object(
-        'edfi', json_build_object(
+    (jsonb_build_object(
+        'edfi', jsonb_build_object(
             'resource', 'courses',
-            'naturalKey', json_build_object(
+            'naturalKey', jsonb_build_object(
                 'educationOrganizationId', crs.educationOrganizationId,
                 'courseCode', crs.coursecode
             )
         )
-    ) AS metadata,
+    ) || jsonb_strip_nulls(jsonb_build_object('courseStateId', state_codes.state_code)))::json AS metadata,
     crs.educationOrganizationId as "educationOrganizationId"
 from course crs
+    left join state_codes
+        on state_codes.documentid = crs.documentid
     left join course_offerings
         on crs.educationorganizationid = course_offerings.educationorganizationid
         and crs.coursecode = course_offerings.coursecode
