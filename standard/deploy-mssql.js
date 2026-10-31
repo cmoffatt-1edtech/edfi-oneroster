@@ -199,7 +199,7 @@ async function checkPrerequisites(pool) {
         const databaseName = versionResult.recordset[0].DatabaseName;
 
         console.log(`✅ Database: ${databaseName}`);
-        console.log(`✅ SQL Server Version: ${majorVersion} (${versionString.split('\\n')[0]})`);
+        console.log(`✅ SQL Server Version: ${majorVersion} (${versionString.split('\n')[0]})`);
 
         if (majorVersion < 13) {
             throw new Error(`SQL Server 2016 or later is required for JSON support. Current version: ${majorVersion}`);
@@ -278,7 +278,7 @@ async function checkSqlServerAgent(pool) {
 }
 
 async function runDataRefresh() {
-    console.log('\\n=== Data Population ===');
+    console.log('\n=== Data Population ===');
     console.log('🔄 Running data refresh process...');
 
     // Run the refresh script in a separate process, passing the data standard
@@ -290,14 +290,14 @@ async function runDataRefresh() {
     return new Promise((resolve) => {
         refreshProcess.on('close', (code) => {
             if (code === 0) {
-                console.log('\\n✅ Data population completed successfully!');
+                console.log('\n✅ Data population completed successfully!');
             } else {
-                console.log('\\n⚠️  Data population completed with warnings or errors.');
+                console.log('\n⚠️  Data population completed with warnings or errors.');
             }
             resolve(code === 0);
         });
         refreshProcess.on('error', (err) => {
-            console.error('\\n❌ Failed to run data refresh:', err.message);
+            console.error('\n❌ Failed to run data refresh:', err.message);
             resolve(false);
         });
     });
@@ -312,12 +312,12 @@ async function deploy() {
     console.log(`Target Database: ${config.database}`);
     console.log(`User: ${config.user}`);
     console.log(`Deployment Time: ${new Date().toISOString()}`);
-    console.log('========================================\\n');
+    console.log('========================================\n');
 
     try {
         console.log('🔌 Connecting to SQL Server...');
         const pool = await sql.connect(config);
-        console.log('✅ Connected successfully\\n');
+        console.log('✅ Connected successfully\n');
 
         // Check prerequisites (also reports whether SQL Server Agent is running)
         const agentStatus = await checkPrerequisites(pool);
@@ -356,11 +356,11 @@ async function deploy() {
             let refreshSuccess = await runDataRefresh();
 
             if (refreshSuccess) {
-                console.log('\\n✅ Data refresh completed successfully!');
+                console.log('\n✅ Data refresh completed successfully!');
             }
         }
 
-        console.log('\\n========================================');
+        console.log('\n========================================');
         if (failCount === 0) {
             console.log('🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!');
         } else {
@@ -380,7 +380,7 @@ async function deploy() {
         process.exit(failCount === 0 ? 0 : 1);
 
     } catch (err) {
-        console.error('\\n❌ DEPLOYMENT FAILED!');
+        console.error('\n❌ DEPLOYMENT FAILED!');
         console.error('Error:', err.message);
         process.exit(1);
     }
