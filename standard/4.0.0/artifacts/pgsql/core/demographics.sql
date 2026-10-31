@@ -104,7 +104,8 @@ from student
     left join edfi.descriptor statedescriptor
         on student.birthstateabbreviationdescriptorid=statedescriptor.descriptorid;
 
--- Add an index so the materialized view can be refreshed _concurrently_:
+-- Index sourcedId lookups. Not unique, so it does not enable REFRESH MATERIALIZED VIEW
+-- CONCURRENTLY; the service (cronService.js) refreshes without CONCURRENTLY.
 create index if not exists demographics_sourcedid ON oneroster12.demographics ("sourcedId");
 
 -- Authorization filters: org and student lookups

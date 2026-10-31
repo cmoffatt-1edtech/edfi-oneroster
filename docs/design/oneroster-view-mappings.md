@@ -151,7 +151,7 @@ These are not separate objects — `oneRosterController.js` serves them from a b
 
 ## Engines & refresh
 
-- **PostgreSQL** — each entity is a `materialized view`. A `UNIQUE` index on `sourcedId` is required so the view can be refreshed `CONCURRENTLY`; additional indexes back authorization filters. Refresh is scheduled via `cronService.js` (pg-boss).
+- **PostgreSQL** — each entity is a `materialized view`, refreshed without `CONCURRENTLY`. The `*_sourcedid` indexes serve `sourcedId` lookups; they are not unique, so they would not allow `REFRESH MATERIALIZED VIEW CONCURRENTLY`. Additional indexes back authorization filters. Refresh is scheduled via `cronService.js` (pg-boss).
 - **MSSQL** — each entity is a physical **table** populated by a `sp_refresh_<entity>` stored procedure (same logic as the pg view). `oneroster12.sp_refresh_all` (`orchestration/master_refresh.sql`) runs them in dependency order — `academicsessions, orgs, courses, classes, demographics, users, enrollments` — logging to `refresh_history`/`refresh_errors`, with a 10-minute debounce (`@ForceRefresh`/`@SkipOnError` flags). Scheduled via SQL Agent (`orchestration/sql_agent.sql`).
 
 ## Data Standard versions

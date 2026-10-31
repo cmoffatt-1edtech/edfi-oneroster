@@ -143,7 +143,8 @@ stacked as (
 )
 select * from stacked;
 
--- Add an index so the materialized view can be refreshed _concurrently_:
+-- Index sourcedId lookups. Not unique, so it does not enable REFRESH MATERIALIZED VIEW
+-- CONCURRENTLY; the service (cronService.js) refreshes without CONCURRENTLY.
 create index if not exists orgs_sourcedid ON oneroster12.orgs ("sourcedId");
 
 -- Authorization filters: org id lookups

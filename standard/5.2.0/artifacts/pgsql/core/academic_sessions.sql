@@ -131,7 +131,8 @@ stacked as (
 -- https://www.imsglobal.org/sites/default/files/spec/oneroster/v1p2/rostering-restbinding/OneRosterv1p2RosteringService_RESTBindv1p0.html#Main6p4p2
 select * from stacked;
 
--- Add an index so the materialized view can be refreshed _concurrently_:
+-- Index sourcedId lookups. Not unique, so it does not enable REFRESH MATERIALIZED VIEW
+-- CONCURRENTLY; the service (cronService.js) refreshes without CONCURRENTLY.
 create index if not exists academicsessions_sourcedid ON oneroster12.academicsessions ("sourcedId");
 
 -- Authorization filters: org id lookups

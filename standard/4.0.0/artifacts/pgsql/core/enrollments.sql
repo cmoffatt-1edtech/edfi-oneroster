@@ -171,7 +171,8 @@ select * from staff_enrollments_formatted
 union all
 select * from student_enrollments_formatted;
 
--- Add an index so the materialized view can be refreshed _concurrently_:
+-- Index sourcedId lookups. Not unique, so it does not enable REFRESH MATERIALIZED VIEW
+-- CONCURRENTLY; the service (cronService.js) refreshes without CONCURRENTLY.
 create index enrollments_sourcedid ON oneroster12.enrollments ("sourcedId");
 
 -- Authorization filters: org and participant lookups

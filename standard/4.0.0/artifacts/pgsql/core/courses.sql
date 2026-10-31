@@ -72,7 +72,8 @@ from course crs
     left join edfi.localEducationAgency crs_lea
         on crs.educationOrganizationId = crs_lea.localEducationAgencyId;
 
--- Add an index so the materialized view can be refreshed _concurrently_:
+-- Index sourcedId lookups. Not unique, so it does not enable REFRESH MATERIALIZED VIEW
+-- CONCURRENTLY; the service (cronService.js) refreshes without CONCURRENTLY.
 create index if not exists courses_sourcedid ON oneroster12.courses ("sourcedId");
 
 -- Authorization filters: org id lookups

@@ -605,6 +605,7 @@ select * from formatted_users_staff
 union all
 select * from formatted_users_parents;
 
--- Add an index so the materialized view can be refreshed _concurrently_:
+-- Index sourcedId lookups. Not unique, so it does not enable REFRESH MATERIALIZED VIEW
+-- CONCURRENTLY; the service (cronService.js) refreshes without CONCURRENTLY.
 create index if not exists users_sourcedid ON oneroster12.users ("sourcedId");
 create index if not exists users_participantusi ON oneroster12.users ("participantUSI");
