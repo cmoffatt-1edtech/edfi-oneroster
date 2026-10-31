@@ -66,7 +66,12 @@ BEGIN
             ('classes'),           -- 4. Classes (depends on courses, orgs, academicsessions)
             ('demographics'),      -- 5. Demographics (no dependencies but related to users)
             ('users'),             -- 6. Users (depends on orgs, complex)
-            ('enrollments')        -- 7. Enrollments (depends on classes, users)
+            ('enrollments'),       -- 7. Enrollments (depends on classes, users)
+            -- Assessment rostering: no dependencies on the tables above or on each other
+            ('assessments'),       -- 8.
+            ('assessmentofferings'), -- 9.
+            ('assessmentenrollments'), -- 10.
+            ('assessmentauthorgs') -- 11. Read by the assessments and offerings authorization filters
     ) AS refresh_order(table_name);
 
     OPEN refresh_cursor;
@@ -191,10 +196,11 @@ BEGIN
     DECLARE @RowCountQuery NVARCHAR(MAX) = '';
     SELECT @RowCountQuery = @RowCountQuery +
         'SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name +
-        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 7 THEN ' UNION ALL ' ELSE '' END
+        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 11 THEN ' UNION ALL ' ELSE '' END
     FROM (VALUES
         ('academicsessions'), ('classes'), ('courses'), ('demographics'),
-        ('enrollments'), ('orgs'), ('users')
+        ('enrollments'), ('orgs'), ('users'),
+        ('assessments'), ('assessmentofferings'), ('assessmentenrollments'), ('assessmentauthorgs')
     ) AS tables(table_name);
 
     EXEC sp_executesql @RowCountQuery;
@@ -260,10 +266,11 @@ BEGIN
     DECLARE @RowCountQuery NVARCHAR(MAX) = '';
     SELECT @RowCountQuery = @RowCountQuery +
         'SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name +
-        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 7 THEN ' UNION ALL ' ELSE '' END
+        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 11 THEN ' UNION ALL ' ELSE '' END
     FROM (VALUES
         ('academicsessions'), ('classes'), ('courses'), ('demographics'),
-        ('enrollments'), ('orgs'), ('users')
+        ('enrollments'), ('orgs'), ('users'),
+        ('assessments'), ('assessmentofferings'), ('assessmentenrollments'), ('assessmentauthorgs')
     ) AS tables(table_name);
 
     EXEC sp_executesql @RowCountQuery;

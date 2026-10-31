@@ -131,7 +131,7 @@ const ASSESSMENT_PROJECTIONS = ['assessmentauthorgs', 'assessmentenrollments', '
 
 describe.each([
   ['5.2.0', 'dms-pgsql', ENGINES.postgres, true],
-  ['5.2.0', 'dms-mssql', ENGINES.mssql, false],
+  ['5.2.0', 'dms-mssql', ENGINES.mssql, true],
   ['6.1.0', 'dms-pgsql', ENGINES.postgres, false],
   ['6.1.0', 'dms-mssql', ENGINES.mssql, false]
 ])('standard/%s/artifacts/%s', (version, directory, engine, assessment) => {

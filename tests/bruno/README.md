@@ -14,6 +14,11 @@ This directory contains Bruno collections and scripts for running end-to-end
 
 - `bruno.json` — Bruno collection root file
 - `tests/` — Bruno test cases for OneRoster endpoints
+- `tests-dms/` — authorization and routing checks for Ed-Fi API v8 (DMS); see `run-bruno-dms.ps1`
+- `tests-assessment/` — the provisional assessment rostering endpoints. Not part of `tests/`,
+  which runs with the service off. Needs `ASSESSMENT_ROSTERING_ENABLED=true`, the Grand Bend
+  sample, and a client for school 255901001 (`ASSESSMENT_SCHOOL_KEY` / `ASSESSMENT_SCHOOL_SECRET`):
+  `bru run tests-assessment -r --env-file environments/assessment-ods.bru` (or `assessment-dms.bru`)
 - `environments/` — Bruno environment files (e.g., `ci.bru`)
 - `run-bruno-e2e.ps1` — PowerShell script to automate environment setup, health
   checks, test execution, and cleanup

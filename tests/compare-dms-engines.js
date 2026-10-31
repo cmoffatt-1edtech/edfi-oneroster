@@ -26,6 +26,8 @@
  *     node tests/compare-dms-engines.js --pg-snapshot tests/.dms-compare/pg-ds52
  * Or both live: set DMS_PG and DMS_MSSQL and pass neither option.
  * Options: --views orgs,users  --samples 5  --json out.json
+ * The assessment rostering projections are compared when both engines have them, skipped when
+ * neither does (an older snapshot has no file for them), and a difference when only one does.
  */
 
 import fs from 'fs';
@@ -39,6 +41,7 @@ import { buildMssqlTlsOptions } from '../src/config/mssql-tls.js';
 import { compareRows, unexplainedCount } from './compare-dms-database.js';
 
 const VIEWS = ['orgs', 'academicsessions', 'courses', 'classes', 'users', 'enrollments', 'demographics'];
+const OPTIONAL_VIEWS = ['assessments', 'assessmentofferings', 'assessmentenrollments', 'assessmentauthorgs'];
 const PG_DATE_OID = 1082;
 const PG_TIMESTAMP_OID = 1114;
 
@@ -50,7 +53,7 @@ const PG_TYPE_PARSERS = {
 };
 
 function parseArgs(argv) {
-  const args = { views: VIEWS, samples: 5, json: null, savePg: null, pgSnapshot: null };
+  const args = { views: [...VIEWS, ...OPTIONAL_VIEWS], samples: 5, json: null, savePg: null, pgSnapshot: null };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case '--views': args.views = argv[++i].split(',').map(v => v.trim()).filter(Boolean); break;
@@ -112,6 +115,10 @@ async function readPostgres(connection, views) {
       const { rows: columns } = await client.query(
         `select a.attname as name from pg_attribute a join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
           where n.nspname = 'oneroster12' and c.relname = $1 and a.attnum > 0 and not a.attisdropped order by a.attnum`, [view]);
+      if (columns.length === 0 && OPTIONAL_VIEWS.includes(view)) {
+        result[view] = null;
+        continue;
+      }
       const { rows } = await client.query(`select * from oneroster12.${view}`);
       result[view] = { columns: columns.map(c => c.name), rows: rows.map(row => normalizeRow(row)) };
     }
@@ -133,6 +140,10 @@ async function readMssql(connection, views) {
       const { recordset: columns } = await pool.request().input('view', sql.NVarChar, view).query(
         `select c.name from sys.columns c join sys.objects o on o.object_id = c.object_id join sys.schemas s on s.schema_id = o.schema_id
           where s.name = 'oneroster12' and o.name = @view order by c.column_id`);
+      if (columns.length === 0 && OPTIONAL_VIEWS.includes(view)) {
+        result[view] = null;
+        continue;
+      }
       const { recordset } = await pool.request().query(`select * from oneroster12.[${view}]`);
       const dateColumns = new Set(Object.values(recordset.columns || {}).filter(c => c.type === sql.Date).map(c => c.name));
       result[view] = { columns: columns.map(c => c.name), rows: recordset.map(row => normalizeRow(row, dateColumns)) };
@@ -144,7 +155,11 @@ async function readMssql(connection, views) {
 }
 
 function readSnapshot(dir, views) {
-  return Object.fromEntries(views.map(view => [view, JSON.parse(fs.readFileSync(path.join(dir, `${view}.json`), 'utf8'))]));
+  return Object.fromEntries(views.map(view => {
+    const file = path.join(dir, `${view}.json`);
+    if (!fs.existsSync(file) && OPTIONAL_VIEWS.includes(view)) return [view, null];
+    return [view, JSON.parse(fs.readFileSync(file, 'utf8'))];
+  }));
 }
 
 async function main() {
@@ -154,6 +169,10 @@ async function main() {
     if (!process.env.DMS_PG) throw new Error('Set DMS_PG');
     fs.mkdirSync(args.savePg, { recursive: true });
     for (const [view, side] of Object.entries(await readPostgres(process.env.DMS_PG, args.views))) {
+      if (side === null) {
+        console.log(`${view}: not on this data store, not saved`);
+        continue;
+      }
       fs.writeFileSync(path.join(args.savePg, `${view}.json`), `${JSON.stringify(side)}\n`);
       console.log(`${view}: ${side.rows.length} rows saved`);
     }
@@ -170,6 +189,16 @@ async function main() {
   const report = { views: {} };
   let unexplained = 0;
   for (const view of args.views) {
+    if (pgViews[view] === null || mssqlViews[view] === null) {
+      if (pgViews[view] === null && mssqlViews[view] === null) {
+        console.log(`\n${view}: on neither engine, skipped`);
+      } else {
+        console.log(`\n${view}: only on ${pgViews[view] === null ? 'SQL Server' : 'PostgreSQL'}`);
+        report.views[view] = { onlyOn: pgViews[view] === null ? 'mssql' : 'pg' };
+        unexplained++;
+      }
+      continue;
+    }
     const result = compareEngines(pgViews[view], mssqlViews[view], args);
     report.views[view] = result;
     unexplained += unexplainedCount(result);
