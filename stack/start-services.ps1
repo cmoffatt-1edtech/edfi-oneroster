@@ -11,15 +11,16 @@
   Starts the Docker Compose services, rebuilding the OneRoster images before starting them.
 
 .EXAMPLE
-  ./start-services.ps1 -EnvFile "mssql/.env.5.2.0.example"
-    Starts the Docker Compose services using the specified environment file.
+  ./start-services.ps1 -EnvFile "mssql/.env.5.2.0.example" -DbType Mssql
+  Starts the Docker Compose services against an Ed-Fi Data Standard 5.2.0 SQL Server ODS.
+  The SQL Server env files need -DbType Mssql; the default is Postgres.
 
 .EXAMPLE
   ./start-services.ps1 -EnvFile "pgsql/.env.6.1.0.example"
   Starts the Docker Compose services against an Ed-Fi Data Standard 6.1.0 PostgreSQL ODS.
 
 .EXAMPLE
-  ./start-services.ps1 -EnvFile "mssql/.env.6.1.0.example"
+  ./start-services.ps1 -EnvFile "mssql/.env.6.1.0.example" -DbType Mssql
   Starts the Docker Compose services against an Ed-Fi Data Standard 6.1.0 SQL Server ODS.
 
 .NOTES
