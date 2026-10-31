@@ -4,7 +4,8 @@ import { knexManager } from '../config/knex-factory.js';
 import { parseConnectionString } from '../config/multi-tenancy-config.js';
 import { buildPostgresClientOptions } from '../config/db-connection.js';
 import { getLogger } from '../utils/logger.js';
-import { refreshView } from './viewRefresh.js';
+import { refreshView, matviewExists } from './viewRefresh.js';
+import { isAssessmentRosteringEnabled, ASSESSMENT_VIEWS } from '../config/assessment-rostering.js';
 
 const logger = getLogger('CronService');
 
@@ -76,6 +77,10 @@ export async function initializeCronJobs() {
     // OneRoster endpoints that have materialized views
     const endpoints = ['academicsessions', 'classes', 'courses', 'demographics', 'enrollments', 'orgs', 'users'];
 
+    // Assessment rostering views, which only some data stores have (Data Standard 5.2 and later)
+    const optionalViews = new Set(isAssessmentRosteringEnabled() ? ASSESSMENT_VIEWS : []);
+    endpoints.push(...optionalViews);
+
     for (const endpoint of endpoints) {
       const queue = `oneroster-refresh-${endpoint}`;
 
@@ -103,6 +108,10 @@ export async function initializeCronJobs() {
                 logger.warn(`Schema 'oneroster12' not found on ODS instance - skipping refresh for oneroster12.${endpoint}`);
                 continue;
               }
+              if (optionalViews.has(endpoint) && !(await matviewExists(knexInstance, endpoint))) {
+                logger.debug(`oneroster12.${endpoint} not deployed on this data store - skipping refresh`);
+                continue;
+              }
               // On DMS, skipped while the view's sources are unchanged (see viewRefresh.js)
               const result = await refreshView(knexInstance, endpoint);
               if (result.refreshed) {
@@ -120,6 +129,18 @@ export async function initializeCronJobs() {
       if (process.env.PGBOSS_CRON) {
         await boss.schedule(queue, process.env.PGBOSS_CRON);
         logger.info(`Scheduled ${queue} with cron: ${process.env.PGBOSS_CRON}`);
+      }
+    }
+
+    // pg-boss keeps schedules across restarts, so with the flag off drop any an earlier run left
+    // for the assessment views; nothing works those queues now
+    if (!isAssessmentRosteringEnabled()) {
+      for (const view of ASSESSMENT_VIEWS) {
+        try {
+          await boss.unschedule(`oneroster-refresh-${view}`);
+        } catch (err) {
+          logger.warn({ view, err }, 'Could not remove the refresh schedule for an assessment view');
+        }
       }
     }
 
