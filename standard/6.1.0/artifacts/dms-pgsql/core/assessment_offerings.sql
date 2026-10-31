@@ -35,7 +35,7 @@ windows as (
     select
         p."AssessmentAdministration_DocumentId" as documentid,
         json_agg(
-            json_build_object('startDate', p."AssessmentAdministrationBeginDate"::text, 'endDate', p."AssessmentAdministrationEndDate"::text)
+            json_build_object('startDate', to_char(p."AssessmentAdministrationBeginDate", 'YYYY-MM-DD'), 'endDate', to_char(p."AssessmentAdministrationEndDate", 'YYYY-MM-DD'))
             order by p."AssessmentAdministrationBeginDate", p."AssessmentAdministrationEndDate" nulls last
         ) as windows
     from edfi."AssessmentAdministrationPeriod" p

@@ -35,7 +35,7 @@ windows as (
         p.assigningeducationorganizationid,
         p.administrationidentifier,
         json_agg(
-            json_build_object('startDate', p.begindate::text, 'endDate', p.enddate::text)
+            json_build_object('startDate', to_char(p.begindate, 'YYYY-MM-DD'), 'endDate', to_char(p.enddate, 'YYYY-MM-DD'))
             order by p.begindate, p.enddate nulls last
         ) as windows
     from edfi.assessmentadministrationperiod p

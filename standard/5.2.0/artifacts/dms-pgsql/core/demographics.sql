@@ -66,7 +66,7 @@ select
         (student."ContentLastModifiedAt" at time zone 'UTC'),
         coalesce(seo.edorg_lmdate, (student."ContentLastModifiedAt" at time zone 'UTC'))
     ) as "dateLastModified",
-    student."BirthDate"::text as "birthDate",
+    to_char(student."BirthDate", 'YYYY-MM-DD') as "birthDate",
     mappedsexdescriptor."MappedValue" as "sex",
     -- OneRoster spec expects the _string_ "true" or "false", not a JSON boolean value
     case when coalesce(sr.race_array, array[]::text[]) @> array['americanIndianOrAlaskaNative'] then 'true' else 'false' end         as "americanIndianOrAlaskaNative",
