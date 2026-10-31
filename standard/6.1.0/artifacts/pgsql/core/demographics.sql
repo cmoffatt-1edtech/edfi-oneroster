@@ -63,7 +63,7 @@ select
         student.lastmodifieddate,
         coalesce(seo.edorg_lmdate, student.lastmodifieddate)
     ) as "dateLastModified",
-    birthdate::text as "birthDate",
+    to_char(birthdate, 'YYYY-MM-DD') as "birthDate",
     mappedsexdescriptor.mappedvalue as "sex",
     -- OneRoster spec expects the _string_ "true" or "false", not a JSON boolean value
     case when coalesce(sr.race_array, array[]::text[]) @> array['americanIndianOrAlaskaNative'] then 'true' else 'false' end         as "americanIndianOrAlaskaNative",
