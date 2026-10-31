@@ -1,0 +1,18 @@
+vars {
+  oauthScope: OneRoster-ReadOnly
+  leaClientId: {{process.env.DMS_LEA_KEY}}
+  leaClientSecret: {{process.env.DMS_LEA_SECRET}}
+  schoolClientId: {{process.env.DMS_SCHOOL_KEY}}
+  schoolClientSecret: {{process.env.DMS_SCHOOL_SECRET}}
+  registrationSchoolClientId: {{process.env.ASSESSMENT_SCHOOL_KEY}}
+  registrationSchoolClientSecret: {{process.env.ASSESSMENT_SCHOOL_SECRET}}
+  coreClientId: {{process.env.DMS_CORE_KEY}}
+  coreClientSecret: {{process.env.DMS_CORE_SECRET}}
+  coreScope: OneRoster-Core
+  noRosterClientId: {{process.env.DMS_SEEDER_KEY}}
+  noRosterClientSecret: {{process.env.DMS_SEEDER_SECRET}}
+  noRosterScope: SeedLoader
+  oauthUrl: {{process.env.DMS_TOKEN_URL}}
+  oneRosterUrl: {{process.env.DMS_ONEROSTER_URL}}
+  assessmentPath: ims/oneroster/assessmentRostering/v1p0
+}

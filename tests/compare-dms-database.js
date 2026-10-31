@@ -38,13 +38,16 @@ import { parseConnectionString } from '../src/config/multi-tenancy-config.js';
 import { buildPostgresClientOptions } from '../src/config/db-connection.js';
 
 const VIEWS = ['orgs', 'academicsessions', 'courses', 'classes', 'users', 'enrollments', 'demographics'];
+// Assessment rostering (Data Standard 5.2 and later): compared when both data stores have them,
+// skipped when neither does, a difference when only one does
+const OPTIONAL_VIEWS = ['assessments', 'assessmentofferings', 'assessmentenrollments', 'assessmentauthorgs'];
 export const PERSON_KEY_COLUMNS = new Set(['participantUSI', 'studentUSI', 'participantDocumentId', 'studentDocumentId']);
 const IGNORED_COLUMNS = new Set(['dateLastModified', ...PERSON_KEY_COLUMNS]);
 const DEFAULT_EXCLUDED_EDORGS = ['5', '6', '7'];
 
 // int8 and numeric arrive as strings from node-postgres; the API sees exactly these values.
 function parseArgs(argv) {
-  const args = { views: VIEWS, excluded: DEFAULT_EXCLUDED_EDORGS, json: null, samples: 5 };
+  const args = { views: [...VIEWS, ...OPTIONAL_VIEWS], excluded: DEFAULT_EXCLUDED_EDORGS, json: null, samples: 5 };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case '--views': args.views = argv[++i].split(',').map(v => v.trim()).filter(Boolean); break;
@@ -200,7 +203,21 @@ async function main() {
   let unexplained = 0;
 
   try {
+    const exists = (client, view) => client.query('select to_regclass($1) is not null as present', [`oneroster12.${view}`]).then(r => r.rows[0].present);
     for (const view of args.views) {
+      if (OPTIONAL_VIEWS.includes(view)) {
+        const [onOds, onDms] = await Promise.all([exists(ods, view), exists(dms, view)]);
+        if (!onOds && !onDms) {
+          console.log(`\n${view}: on neither data store, skipped`);
+          continue;
+        }
+        if (onOds !== onDms) {
+          console.log(`\n${view}: only on ${onOds ? 'the ODS' : 'DMS'}`);
+          report.views[view] = { onlyOn: onOds ? 'ods' : 'dms' };
+          unexplained++;
+          continue;
+        }
+      }
       const [odsRows, dmsRows, odsTypes, dmsTypes] = await Promise.all([
         ods.query(`select * from oneroster12.${view}`).then(r => r.rows),
         dms.query(`select * from oneroster12.${view}`).then(r => r.rows),

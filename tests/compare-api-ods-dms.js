@@ -29,6 +29,9 @@
  *   --dms-env <file>  Read the DMS_* values from stack/dms/.env.dms-clients
  *                     (written by stack/setup-dms-clients.ps1).
  *   Variables already set in the environment take precedence over both files.
+ *   --assessment-rostering  Also compare the assessment rostering collections (both services need
+ *                     ASSESSMENT_ROSTERING_ENABLED=true). dms-vs-recording turns it on by itself for a
+ *                     recording that has them.
  *   --known <file>    Differences already explained (JSON, see dms-parity-known-differences.json):
  *                     they are listed but don't fail the run. Exit code 1 means an unexplained
  *                     difference.
@@ -55,6 +58,13 @@ const COLLECTIONS = {
   classes: 'classes', courses: 'courses', demographics: 'demographics', enrollments: 'enrollments',
   orgs: 'orgs', schools: 'orgs', users: 'users', students: 'users', teachers: 'users'
 };
+// Assessment rostering (--assessment-rostering): name -> [path from the service root, wrapper]
+const ASSESSMENT_BASE = '/ims/oneroster/assessmentRostering/v1p0';
+const ASSESSMENT_COLLECTIONS = {
+  assessments: [`${ASSESSMENT_BASE}/assessments`, 'assessments'],
+  assessmentOfferings: [`${ASSESSMENT_BASE}/assessmentOfferings`, 'assessmentOfferings'],
+  assessmentEnrollments: [`${ASSESSMENT_BASE}/assessmentEnrollments`, 'assessmentEnrollments']
+};
 
 const CLIENTS = ['lea', 'school'];
 const SIDE_NAMES = ['ODS', 'DMS'];
@@ -74,7 +84,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const md5 = text => crypto.createHash('md5').update(text).digest('hex');
 
 function parseArgs(argv) {
-  const args = { excluded: ['5', '6', '7'], samples: 3, pageSize: 500, odsEnv: null, dmsEnv: null, known: null, out: null, recording: null, name: null };
+  const args = {
+    excluded: ['5', '6', '7'], samples: 3, pageSize: 500, odsEnv: null, dmsEnv: null, known: null, out: null, recording: null, name: null,
+    assessment: false
+  };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--exclude-edorgs') args.excluded = argv[++i].split(',').map(s => s.trim()).filter(Boolean);
     else if (argv[i] === '--samples') args.samples = Number(argv[++i]);
@@ -85,6 +98,7 @@ function parseArgs(argv) {
     else if (argv[i] === '--out') args.out = argv[++i];
     else if (argv[i] === '--recording') args.recording = argv[++i];
     else if (argv[i] === '--name') args.name = argv[++i];
+    else if (argv[i] === '--assessment-rostering') args.assessment = true;
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
   return args;
@@ -246,9 +260,11 @@ async function liveService(url, tokenUrl, clients) {
   }
   const service = {
     requests: 0,
+    // a path starting with '/' is from the service root, any other from the rostering base
     get: async (path, client) => {
       service.requests++;
-      return get(`${base}/${path}`, client !== null && client in tokens ? tokens[client] : client);
+      const target = path.startsWith('/') ? `${url.replace(/\/+$/, '')}${path}` : `${base}/${path}`;
+      return get(target, client !== null && client in tokens ? tokens[client] : client);
     }
   };
   return service;
@@ -258,16 +274,20 @@ async function liveService(url, tokenUrl, clients) {
  * Every response the comparison needs from one service: each collection, paged in full, for the
  * LEA and School clients; single items (the first `samples` of each collection, or `sampleIds`
  * when given, so both sides fetch the same ids); the error cases; and, when `core` is set,
- * /demographics for the roster-core client.
+ * /demographics for the roster-core client. `assessment` adds the assessment rostering collections.
  */
-export async function collectResponses(service, { pageSize = 500, samples = 3, sampleIds = null, core = false } = {}) {
+export async function collectResponses(service, { pageSize = 500, samples = 3, sampleIds = null, core = false, assessment = false } = {}) {
   const responses = { collections: {}, singles: {}, errors: {} };
+  const collections = [
+    ...Object.entries(COLLECTIONS).map(([name, wrapper]) => [name, name, wrapper]),
+    ...(assessment ? Object.entries(ASSESSMENT_COLLECTIONS).map(([name, [path, wrapper]]) => [name, path, wrapper]) : [])
+  ];
   for (const client of CLIENTS) {
-    for (const [collection, wrapper] of Object.entries(COLLECTIONS)) {
+    for (const [collection, path, wrapper] of collections) {
       const label = `${client} ${collection}`;
       const items = [];
       for (let offset = 0; ; offset += pageSize) {
-        const res = await service.get(`${collection}?limit=${pageSize}&offset=${offset}`, client);
+        const res = await service.get(`${path}?limit=${pageSize}&offset=${offset}`, client);
         if (res.status !== 200) throw new Error(`${label}: HTTP ${res.status}`);
         const page = res.body[wrapper] || [];
         items.push(...page);
@@ -276,7 +296,7 @@ export async function collectResponses(service, { pageSize = 500, samples = 3, s
       responses.collections[label] = items;
       responses.singles[label] = {};
       const ids = sampleIds ? Object.keys(sampleIds[label] || {}) : items.slice(0, samples).map(item => item.sourcedId);
-      for (const id of ids) responses.singles[label][id] = await service.get(`${collection}/${id}`, client);
+      for (const id of ids) responses.singles[label][id] = await service.get(`${path}/${id}`, client);
     }
   }
   for (const [label, path, client] of ERROR_CASES) responses.errors[label] = await service.get(path, client);
@@ -300,6 +320,9 @@ export function compareResponses(a, b, { excludedEdOrgs = [], names = SIDE_NAMES
 
   const summary = [];
   const diffs = [];
+  for (const label of Object.keys(a.collections).filter(label => !(label in b.collections))) {
+    diffs.push({ label, kind: `collection only in the ${nameA} responses` });
+  }
   for (const label of Object.keys(b.collections)) {
     if (!a.collections[label]) throw new Error(`${label}: not in the ${nameA} responses`);
     const kept = a.collections[label].filter(item => !isExcluded(item, excludedOrgs, excludedUsers));
@@ -378,8 +401,9 @@ export async function runOdsVsDms(argv) {
   const dms = await dmsService();
 
   // DMS first: the single items are sampled from DMS, which has no excluded education organizations
-  const dmsResponses = await collectResponses(dms, { pageSize: args.pageSize, samples: args.samples, core });
-  const odsResponses = await collectResponses(ods, { pageSize: args.pageSize, sampleIds: dmsResponses.singles, core });
+  const options = { pageSize: args.pageSize, core, assessment: args.assessment };
+  const dmsResponses = await collectResponses(dms, { ...options, samples: args.samples });
+  const odsResponses = await collectResponses(ods, { ...options, sampleIds: dmsResponses.singles });
   return report(compareResponses(odsResponses, dmsResponses, { excludedEdOrgs: args.excluded }),
     { known: loadKnown(args), requests: ods.requests + dms.requests });
 }
@@ -394,7 +418,9 @@ export async function runDmsRecord(argv) {
   if (!args.out) throw new Error('Set --out <file>');
   loadEnvFiles(args);
   const dms = await dmsService();
-  const responses = await collectResponses(dms, { pageSize: args.pageSize, samples: args.samples, core: Boolean(process.env.DMS_CORE_KEY) });
+  const responses = await collectResponses(dms, {
+    pageSize: args.pageSize, samples: args.samples, core: Boolean(process.env.DMS_CORE_KEY), assessment: args.assessment
+  });
   const recording = { format: RECORDING_FORMAT, name: args.name || 'recorded', recordedAt: new Date().toISOString(), service: process.env.DMS_ONEROSTER_URL, responses };
   fs.writeFileSync(args.out, `${JSON.stringify(recording)}\n`, { mode: 0o600 });
   const items = Object.values(responses.collections).reduce((n, list) => n + list.length, 0);
@@ -412,7 +438,9 @@ export async function runDmsVsRecording(argv) {
   const core = CORE_CASE in recording.responses.errors;
   if (core && !process.env.DMS_CORE_KEY) throw new Error('The recording has the roster-core case: set DMS_CORE_KEY / DMS_CORE_SECRET');
   const dms = await dmsService();
-  const live = await collectResponses(dms, { pageSize: args.pageSize, sampleIds: recording.responses.singles, core });
+  // A recording made with the assessment collections is compared with them
+  const assessment = args.assessment || Object.keys(recording.responses.collections).some(label => label.endsWith(' assessments'));
+  const live = await collectResponses(dms, { pageSize: args.pageSize, sampleIds: recording.responses.singles, core, assessment });
   const names = [recording.name, args.name || 'live'];
   console.log(`Recorded ${recording.recordedAt} from ${recording.service} (${recording.name}); live ${process.env.DMS_ONEROSTER_URL} (${names[1]})`);
   return report(compareResponses(recording.responses, live, { names }), { names, known: loadKnown(args), requests: dms.requests });
