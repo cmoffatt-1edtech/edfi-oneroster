@@ -297,9 +297,12 @@ PGBOSS_CRON=*/15 * * * *
 
 1. Copy the example env file that matches your target data standard and edit the
    values you care about (credentials, BASE_URL, image tags, keys).
-2. Ensure the required `.crt`, `.key`, and `.pem` files exist under
-   `stack/ssl`; run `./generate-certificate.sh` in that folder to create fresh
-   self-signed certificates when needed.
+2. Create the self-signed TLS certificate for nginx. Certificate files are
+   git-ignored, so a fresh clone has none, and nginx does not start without
+   `stack/ssl/server.crt` and `stack/ssl/server.key` (`start-services.ps1`
+   does not check for them). Run `./generate-certificate.sh` in `stack/ssl`
+   (requires `openssl`); it also writes `dhparam.pem`. The certificate is
+   valid for 365 days; rerun the script to replace it.
 3. Run `pwsh ./start-services.ps1 -EnvFile pgsql/.env.5.2.0.example` (or your variant;
    for a `stack/mssql` env file add `-DbType Mssql`).
    Include `-Rebuild` whenever you change OneRoster source.
