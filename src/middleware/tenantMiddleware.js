@@ -10,7 +10,10 @@
 
 import { isMultiTenancyEnabled } from '../config/multi-tenancy-config.js';
 import { getOdsContextConfig } from '../config/ods-context-config.js';
+import { odsClaimsProfile } from '../platform/claims-profile.js';
 import { getLogger } from '../utils/logger.js';
+
+// ODS/API request flow: tenant and ODS instance come from ODS/API token claims.
 
 const logger = getLogger('TenantMiddleware');
 
@@ -19,11 +22,7 @@ const logger = getLogger('TenantMiddleware');
  * Used in multi-tenant mode to verify the token was issued for the requested tenant
  */
 function extractTenantFromJwt(req) {
-  if (!req.auth?.payload) {
-    return null;
-  }
-  const payload = req.auth.payload;
-  return payload.tenantId;
+  return odsClaimsProfile.getTenantId(req.auth?.payload);
 }
 
 const unauthorizedResponse = (res) =>
@@ -38,16 +37,7 @@ const unauthorizedResponse = (res) =>
  * This determines which ODS database to query (authorized instance)
  */
 function extractOdsInstanceIdFromJwt(req) {
-  if (!req.auth?.payload) {
-    return null;
-  }
-
-  const payload = req.auth.payload;
-
-  // Extract OdsInstanceId from JWT - this identifies the authorized ODS database
-  const odsInstanceId = payload.odsInstanceId || payload.ods_instance_id || payload.OdsInstanceId;
-
-  return odsInstanceId ? parseInt(odsInstanceId, 10) : null;
+  return odsClaimsProfile.getOdsInstanceId(req.auth?.payload);
 }
 
 /**

@@ -1,0 +1,7 @@
+{
+  "key": "test-only-key-not-a-secret",
+  "plaintext": "host=dms-postgresql;port=5432;username=oneroster;password=not-a-real-password;database=edfi_test",
+  "envelope": "RWRGaS5DUy5FbnZlbG9wZQHJeyTXcGxC3KjYwkZzL3nb1TvJpMBV0cNWUmgl4kZBZ9BE+RhC7vJHBwwBWxAH8apF6zMwXrr6fkVILkk4hr+IDLy4uPRYCpBpWWhU/XyoE4bsPju8+k9MIDADNmTfSs4boeiWKGMNuALl6ZpAHr2ZunvONQ/GiIYDUqk/CTR28P336ukPkBNYBhB+ug==",
+  "legacy": "JvM5OKfetVZaw0do7AqS7BOKp5y6Nbyfp5lkhbQEzrCFD5hPR4uN9Bx6Oy4FFzw1uxqL9P2MmVjlpVwi/XbGwHL2/3c8PkuHBhlhxpl82w9v5vkDfahhQ1ii3bPmgYjjp1ECiAZGFh2aUbTbEV7pQOqTmbqBT+UQfHWXnZzESdE=",
+  "generatedBy": ".NET 9.0.10 via pwsh"
+}

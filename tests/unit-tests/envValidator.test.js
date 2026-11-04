@@ -30,6 +30,9 @@ describe('envValidator', () => {
     delete process.env.DB_REQUEST_TIMEOUT;
     delete process.env.ENABLE_SWAGGER_UI;
     delete process.env.ENABLE_OPEN_API_METADATA;
+    delete process.env.PLATFORM;
+    delete process.env.ROUTE_QUALIFIER_SEGMENTS;
+    delete process.env.ODS_CONTEXT_ROUTE_TEMPLATE;
 
     // Import the module
     const envValidator = await import('../../src/utils/envValidator.js');
@@ -48,6 +51,135 @@ describe('envValidator', () => {
       const result = validateEnvironmentVariables();
       expect(result.isValid).toBe(true);
       expect(result.errors).toHaveLength(0);
+    });
+
+    describe('PLATFORM validation', () => {
+      // A complete DMS configuration on top of the shared settings from beforeEach
+      function setDmsEnv() {
+        process.env.PLATFORM = 'dms';
+        delete process.env.CONNECTION_CONFIG;
+        delete process.env.OAUTH2_PUBLIC_KEY_PEM;
+        delete process.env.OAUTH2_ISSUERBASEURL;
+        delete process.env.OAUTH2_TOKENSIGNINGALG;
+        process.env.OAUTH2_ISSUER = 'http://ed-fi-api-config:8081';
+        process.env.OAUTH2_AUDIENCE = 'account';
+        process.env.OAUTH2_JWKS_URL = 'http://ed-fi-api-config:8081/.well-known/jwks.json';
+        process.env.ONEROSTER_CLAIMSET_SCOPES = '{"OneRoster-ReadOnly":["roster.readonly","roster-demographics.readonly"]}';
+        process.env.CONFIG_SERVICE_URL = 'http://ed-fi-api-config:8081';
+        process.env.CONFIG_SERVICE_CLIENT_ID = 'CMSAuthMetadataReadOnlyAccess';
+        process.env.CONFIG_SERVICE_CLIENT_SECRET = 'test-secret';
+        process.env.CONFIG_SERVICE_ENCRYPTION_KEY = 'test-key';
+      }
+
+      afterEach(() => {
+        for (const name of ['OAUTH2_ISSUER', 'OAUTH2_JWKS_URL', 'OAUTH2_METADATA_URL', 'OAUTH2_TOKEN_PROFILE', 'ONEROSTER_CLAIMSET_SCOPES',
+          'CONFIG_SERVICE_URL', 'CONFIG_SERVICE_CLIENT_ID', 'CONFIG_SERVICE_CLIENT_SECRET', 'CONFIG_SERVICE_ENCRYPTION_KEY', 'DATA_STORES']) {
+          delete process.env[name];
+        }
+      });
+
+      test.each(['ods', 'ODS', ' ods '])('accepts PLATFORM=%p as the ODS/API', (value) => {
+        process.env.PLATFORM = value;
+        const result = validateEnvironmentVariables();
+        expect(result.isValid).toBe(true);
+      });
+
+      test('rejects an unrecognised PLATFORM and still checks the ODS/API settings', () => {
+        process.env.PLATFORM = 'v8';
+        delete process.env.OAUTH2_PUBLIC_KEY_PEM;
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toContain('PLATFORM must be one of: ods, dms if set');
+        expect(result.errors).toContain('OAUTH2_PUBLIC_KEY_PEM must not be empty');
+      });
+
+      test('rejects ROUTE_QUALIFIER_SEGMENTS on the ODS/API', () => {
+        process.env.ROUTE_QUALIFIER_SEGMENTS = 'schoolYear';
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([
+          'ROUTE_QUALIFIER_SEGMENTS applies to PLATFORM=dms; use ODS_CONTEXT_ROUTE_TEMPLATE with PLATFORM=ods'
+        ]);
+      });
+
+      test('accepts a complete DMS configuration without the EdFi_Admin, PEM or ODS issuer settings', () => {
+        setDmsEnv();
+        process.env.ODS_INSTANCES = 'not json';
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([]);
+      });
+
+      test('does not require TENANTS_CONNECTION_CONFIG on multi-tenant DMS', () => {
+        setDmsEnv();
+        process.env.MULTITENANCY_ENABLED = 'true';
+        delete process.env.TENANTS_CONNECTION_CONFIG;
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([]);
+      });
+
+      test('lists every missing DMS setting', () => {
+        process.env.PLATFORM = 'dms';
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([
+          'OAUTH2_ISSUER must not be empty when PLATFORM is dms (the exact iss of DMS tokens)',
+          'OAUTH2_JWKS_URL or OAUTH2_METADATA_URL must be set when PLATFORM is dms',
+          'ONEROSTER_CLAIMSET_SCOPES must not be empty when PLATFORM is dms',
+          'CONFIG_SERVICE_URL must not be empty when PLATFORM is dms and DATA_STORES is not set',
+          'CONFIG_SERVICE_CLIENT_ID must not be empty when PLATFORM is dms and DATA_STORES is not set',
+          'CONFIG_SERVICE_CLIENT_SECRET must not be empty when PLATFORM is dms and DATA_STORES is not set',
+          'CONFIG_SERVICE_ENCRYPTION_KEY must not be empty when PLATFORM is dms and DATA_STORES is not set'
+        ]);
+      });
+
+      test('rejects ODS_CONTEXT_ROUTE_TEMPLATE and invalid qualifier segments on DMS', () => {
+        setDmsEnv();
+        process.env.ODS_CONTEXT_ROUTE_TEMPLATE = '{schoolYearFromRoute:int}';
+        process.env.ROUTE_QUALIFIER_SEGMENTS = 'districtId,school-year';
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([
+          'ODS_CONTEXT_ROUTE_TEMPLATE applies to PLATFORM=ods; use ROUTE_QUALIFIER_SEGMENTS with PLATFORM=dms',
+          'ROUTE_QUALIFIER_SEGMENTS contains names that are not valid route parameter names: school-year'
+        ]);
+      });
+
+      test('rejects an unknown token profile, bad URLs and an invalid scope map', () => {
+        setDmsEnv();
+        process.env.OAUTH2_TOKEN_PROFILE = 'pem';
+        process.env.OAUTH2_JWKS_URL = 'ftp://example.org/jwks';
+        process.env.ONEROSTER_CLAIMSET_SCOPES = '{"OneRoster-ReadOnly":["roster.write"]}';
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([
+          'OAUTH2_TOKEN_PROFILE must be one of: cms-self-contained, standard if set',
+          'OAUTH2_JWKS_URL must be an http(s) URL if set',
+          "ONEROSTER_CLAIMSET_SCOPES: 'OneRoster-ReadOnly' has unknown scopes: https://purl.imsglobal.org/spec/or/v1p2/scope/roster.write"
+        ]);
+      });
+
+      test('accepts static DATA_STORES instead of the Configuration Service', () => {
+        setDmsEnv();
+        for (const name of ['CONFIG_SERVICE_URL', 'CONFIG_SERVICE_CLIENT_ID', 'CONFIG_SERVICE_CLIENT_SECRET', 'CONFIG_SERVICE_ENCRYPTION_KEY']) {
+          delete process.env[name];
+        }
+        process.env.DATA_STORES = '{"1":{"ConnectionString":"host=localhost;port=5435;database=edfi_datamanagementservice"}}';
+        expect(validateEnvironmentVariables().errors).toEqual([]);
+
+        // Ciphertext needs the key; and static data stores are single-tenant
+        process.env.DATA_STORES = '{"1":{"ConnectionString":"RWRGaS5DUy5FbnZlbG9wZQ=="}}';
+        process.env.MULTITENANCY_ENABLED = 'true';
+        expect(validateEnvironmentVariables().errors).toEqual([
+          "DATA_STORES['1'] holds an encrypted connection string, so CONFIG_SERVICE_ENCRYPTION_KEY must be set",
+          'DATA_STORES is single-tenant only; with MULTITENANCY_ENABLED=true data stores come from the Configuration Service'
+        ]);
+      });
+
+      test('still checks the shared settings on DMS', () => {
+        setDmsEnv();
+        delete process.env.PG_BOSS_CONNECTION_CONFIG;
+        delete process.env.OAUTH2_AUDIENCE;
+        const result = validateEnvironmentVariables();
+        expect(result.errors).toEqual([
+          'PG_BOSS_CONNECTION_CONFIG must not be empty when DB_TYPE is postgres',
+          'OAUTH2_AUDIENCE must not be empty'
+        ]);
+      });
     });
 
     describe('PORT validation', () => {

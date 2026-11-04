@@ -1,0 +1,15 @@
+{
+  "keys": [
+    {
+      "alg": "RS256",
+      "e": "AQAB",
+      "key_ops": [],
+      "kid": "<kid>",
+      "kty": "RSA",
+      "n": "6Lt0mh-W4jZF6cHa...",
+      "oth": [],
+      "use": "sig",
+      "x5c": []
+    }
+  ]
+}

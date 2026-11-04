@@ -5,6 +5,8 @@
 
 import { getAdminConnectionString, isMultiTenancyEnabled, getTenantsConfig } from '../config/multi-tenancy-config.js';
 import { odsInstanceService } from '../services/database/OdsInstanceService.js';
+import { isDmsPlatform } from '../config/platform.js';
+import { getDataStoreProvider } from '../platform/data-store-provider.js';
 import { getLogger } from '../utils/logger.js';
 
 const logger = getLogger('HealthController');
@@ -12,6 +14,15 @@ const logger = getLogger('HealthController');
 export const list = async (req, res) => {
   try {
     const dbType = process.env.DB_TYPE || 'postgres';
+
+    // DMS: data stores come from the Configuration Service (or DATA_STORES), not EdFi_Admin
+    if (isDmsPlatform()) {
+      await getDataStoreProvider().checkHealth();
+      return res.json({
+        status: "pass",
+        mode: isMultiTenancyEnabled() ? "multi-tenant" : "single-tenant"
+      });
+    }
 
     // Test EdFi_Admin connection(s)
     if (isMultiTenancyEnabled()) {

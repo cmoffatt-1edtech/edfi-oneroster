@@ -105,7 +105,9 @@ export function validateContextValue(value, contextConfig) {
 }
 
 /**
- * Build route pattern for Express based on multi-tenancy and context configuration
+ * Build route pattern for Express based on multi-tenancy and context configuration.
+ * contextConfig is either the parsed ODS template ({ parameterName }) or a route context from
+ * route-context-config.js ({ parameterNames }), which may carry several DMS qualifier segments.
  */
 export function buildRoutePattern(multiTenancyEnabled, contextConfig) {
   const parts = [];
@@ -114,8 +116,11 @@ export function buildRoutePattern(multiTenancyEnabled, contextConfig) {
     parts.push(':tenantId');
   }
 
-  if (contextConfig?.parameterName) {
-    parts.push(`:${contextConfig.parameterName}`);
+  const parameterNames = contextConfig?.parameterNames
+    ?? (contextConfig?.parameterName ? [contextConfig.parameterName] : []);
+
+  for (const parameterName of parameterNames) {
+    parts.push(`:${parameterName}`);
   }
 
   return parts.length > 0 ? `/${parts.join('/')}` : '';

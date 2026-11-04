@@ -6,9 +6,67 @@
 import { isMultiTenancyEnabled, getTenantsConfig } from '../config/multi-tenancy-config.js';
 import { getOdsContextConfig } from '../config/ods-context-config.js';
 import { getValidContextValues } from './odsContextValidationService.js';
+import { isDmsPlatform } from '../config/platform.js';
+import { getRouteContextConfig } from '../config/route-context-config.js';
+import { getDataStoreProvider } from '../platform/data-store-provider.js';
 import { getLogger } from '../utils/logger.js';
 
 const logger = getLogger('SwaggerServerBuilder');
+
+/** One server whose URL ends in a selectable path, or the base URL alone when there's no choice. */
+function selectionServer(baseUrl, label, values) {
+  if (values.length === 0) {
+    return [{ url: baseUrl }];
+  }
+  return [{
+    url: `${baseUrl}/{${label}}`,
+    variables: { [label]: { default: values[0], enum: values, description: label } }
+  }];
+}
+
+/**
+ * Ed-Fi API v8 (DMS): the route prefixes requests can use. Each is the tenant (multi-tenant) followed
+ * by the values of ROUTE_QUALIFIER_SEGMENTS, in order, of a data store whose contexts have exactly
+ * those keys (as dmsDataStoreMiddleware matches them). Data stores without a full set of qualifier
+ * values can't be routed to and are left out. Each segment is percent-encoded, since a context value
+ * may hold "/", "?" or "#"; Express decodes it again into the route parameter.
+ *
+ * @param {string} baseUrl
+ * @param {Object} options
+ * @param {Object} options.provider - DMS data-store provider (listTenants, listDataStores)
+ * @param {boolean} options.multiTenancyEnabled
+ * @param {string[]} options.qualifierNames
+ */
+export async function buildDmsSwaggerServers(baseUrl, { provider, multiTenancyEnabled, qualifierNames }) {
+  if (!multiTenancyEnabled && qualifierNames.length === 0) {
+    return [{ url: baseUrl }];
+  }
+
+  try {
+    const tenants = multiTenancyEnabled ? await provider.listTenants() : [null];
+    const prefixes = new Set();
+    for (const tenant of tenants) {
+      if (qualifierNames.length === 0) {
+        prefixes.add(encodeURIComponent(tenant));
+        continue;
+      }
+      for (const dataStore of await provider.listDataStores(tenant)) {
+        const contexts = new Map(Object.entries(dataStore.contexts || {}).map(([key, value]) => [key.toLowerCase(), String(value)]));
+        const values = qualifierNames.map(name => contexts.get(name.toLowerCase()));
+        if (contexts.size === qualifierNames.length && values.every(value => value !== undefined && value !== '')) {
+          prefixes.add([tenant, ...values].filter(part => part !== null).map(encodeURIComponent).join('/'));
+        }
+      }
+    }
+
+    const label = !multiTenancyEnabled ? 'Context Selection'
+      : qualifierNames.length === 0 ? 'Tenant Selection' : 'Tenant/Context Selection';
+    return selectionServer(baseUrl, label, [...prefixes].sort());
+  } catch (error) {
+    logger.warn({ err: error }, 'Error listing tenants or data stores for the Swagger servers');
+    return [{ url: baseUrl }];
+  }
+}
 
 /**
  * Build Swagger servers array with dynamic tenant/context selection
@@ -16,6 +74,14 @@ const logger = getLogger('SwaggerServerBuilder');
  * @returns {Promise<Array>} Array of server configurations for Swagger
  */
 export async function buildSwaggerServers(baseUrl) {
+  if (isDmsPlatform()) {
+    return buildDmsSwaggerServers(baseUrl, {
+      provider: getDataStoreProvider(),
+      multiTenancyEnabled: isMultiTenancyEnabled(),
+      qualifierNames: getRouteContextConfig()?.parameterNames || []
+    });
+  }
+
   const multiTenancyEnabled = isMultiTenancyEnabled();
   const contextConfig = getOdsContextConfig();
   const dbType = process.env.DB_TYPE || 'postgres';

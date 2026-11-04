@@ -1,8 +1,7 @@
 import OneRosterQueryService from './OneRosterQueryService.js';
 import MSSQLQueryService from './MSSQLQueryService.js';
 import { knexManager } from '../../config/knex-factory.js';
-import { getAdminConnectionString } from '../../config/multi-tenancy-config.js';
-import { odsInstanceService } from './OdsInstanceService.js';
+import { getDataStoreProvider } from '../../platform/data-store-provider.js';
 import { getLogger } from '../../utils/logger.js';
 
 const logger = getLogger('DatabaseServiceFactory');
@@ -12,18 +11,31 @@ const logger = getLogger('DatabaseServiceFactory');
  * Creates OneRoster query services with appropriate ODS database connections
  */
 
+// Same key knexManager.createOdsInstance uses
+const odsInstanceKey = (cacheKey, odsInstanceId) => cacheKey || `odsinstance-${odsInstanceId}`;
+const refreshInstanceKey = (cacheKey, odsInstanceId) => `${odsInstanceKey(cacheKey, odsInstanceId)}-refresh`;
+
 class DatabaseServiceFactory {
   constructor() {
     this.services = new Map();
+    this.connectionVersions = new Map(); // serviceKey -> connection version its pools were built with (DMS)
   }
 
   /**
    * Create OneRoster query service for database type
    * Requires OdsInstanceId to resolve correct ODS database
+   * @param {string|null} [connectionVersion] - DMS: digest of the data store's connection strings
+   *   (src/platform/dms/data-store-providers.js). Pools built from another version are retired, with
+   *   their service if one was built, so a connection changed in the Configuration Service reaches the
+   *   running service. That includes pools whose connection check failed, which have no service.
    */
-  async createServiceForType(dbType, schema = 'oneroster12', tenantId = null, odsInstanceId = null, cacheKey = null) {
+  async createServiceForType(dbType, schema = 'oneroster12', tenantId = null, odsInstanceId = null, cacheKey = null, connectionVersion = null) {
     // Use provided cache key or build default service key
     const serviceKey = cacheKey || `${dbType}_${tenantId || 'default'}_${odsInstanceId || 'default'}_${schema}`;
+
+    if (connectionVersion && this.connectionVersions.has(serviceKey) && this.connectionVersions.get(serviceKey) !== connectionVersion) {
+      this.retireService(serviceKey, cacheKey, odsInstanceId);
+    }
 
     if (!this.services.has(serviceKey)) {
       logger.info(`Creating ${dbType.toUpperCase()} service for schema '${schema}'${tenantId ? ` (tenant: ${tenantId})` : ''}${odsInstanceId ? ` (ODS: ${odsInstanceId})` : ''}${cacheKey ? ` [${cacheKey}]` : ''}`);
@@ -32,21 +44,32 @@ class DatabaseServiceFactory {
         let knexInstance;
 
         if (odsInstanceId) {
-          // Two-level database resolution
-          // Step 1: Get EdFi_Admin connection string (tenant-specific or default)
-          const adminConnectionString = getAdminConnectionString(tenantId, dbType);
-          logger.debug(`Resolving ODS connection via EdFi_Admin for OdsInstanceId: ${odsInstanceId}`);
-
-          // Step 2: Resolve ODS connection string from EdFi_Admin database (or external config)
-          const odsConnectionString = await odsInstanceService.resolveOdsConnectionString({
-            adminConnectionString,
-            dbType,
-            odsInstanceId,
-            tenantId
+          // Resolve the connection string through the platform's data-store provider
+          // (EdFi_Admin or external config on the ODS/API)
+          const provider = getDataStoreProvider();
+          const odsConnectionString = await provider.resolveConnectionString({
+            tenantId,
+            dataStoreId: odsInstanceId,
+            dbType
           });
 
-          // Step 3: Create Knex instance with ODS connection using flow-specific cache key
-          knexInstance = knexManager.createOdsInstance(dbType, odsConnectionString, odsInstanceId, cacheKey);
+          // DMS with USE_READ_REPLICA: queries go to the replica, and the materialized views are
+          // refreshed on the primary (a standby can't refresh them)
+          const refreshConnectionString = provider.resolveRefreshConnectionString
+            ? await provider.resolveRefreshConnectionString({ tenantId, dataStoreId: odsInstanceId })
+            : null;
+
+          // Create Knex instance with the resolved connection using flow-specific cache key
+          knexInstance = knexManager.createOdsInstance(dbType, odsConnectionString, odsInstanceId, cacheKey, {
+            refresh: !refreshConnectionString
+          });
+          if (refreshConnectionString) {
+            knexManager.createOdsInstance(dbType, refreshConnectionString, odsInstanceId, refreshInstanceKey(cacheKey, odsInstanceId));
+          }
+          // Recorded before the connection check: a pool stays cached when the check fails
+          if (connectionVersion) {
+            this.connectionVersions.set(serviceKey, connectionVersion);
+          }
         } else {
           throw new Error('OdsInstanceId is required to resolve an ODS database connection.');
         }
@@ -75,6 +98,18 @@ class DatabaseServiceFactory {
     }
 
     return this.services.get(serviceKey);
+  }
+
+  /**
+   * Drop a cached service whose connection settings changed, and retire its Knex instances (the
+   * query pool and, with a read replica, the primary used for refresh).
+   */
+  retireService(serviceKey, cacheKey, odsInstanceId) {
+    logger.info(`Connection settings changed for ${serviceKey}; replacing its connections`);
+    this.services.delete(serviceKey);
+    this.connectionVersions.delete(serviceKey);
+    knexManager.retireOdsInstance(odsInstanceKey(cacheKey, odsInstanceId));
+    knexManager.retireOdsInstance(refreshInstanceKey(cacheKey, odsInstanceId));
   }
 
   /**
@@ -134,6 +169,7 @@ class DatabaseServiceFactory {
 
     await Promise.all(closePromises);
     this.services.clear();
+    this.connectionVersions.clear();
 
     // Close Knex manager connections
     await knexManager.closeAll();
@@ -148,9 +184,9 @@ const databaseServiceFactory = new DatabaseServiceFactory();
 /**
  * Get the default database service with two-level resolution
  */
-async function getDefaultDatabaseService(tenantId = null, odsInstanceId = null, cacheKey = null) {
+async function getDefaultDatabaseService(tenantId = null, odsInstanceId = null, cacheKey = null, connectionVersion = null) {
   const dbType = process.env.DB_TYPE || 'postgres';
-  return databaseServiceFactory.createServiceForType(dbType, 'oneroster12', tenantId, odsInstanceId, cacheKey);
+  return databaseServiceFactory.createServiceForType(dbType, 'oneroster12', tenantId, odsInstanceId, cacheKey, connectionVersion);
 }
 
 export {

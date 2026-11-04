@@ -23,9 +23,18 @@
  *   }
  * `pgBossConnectionConfig` is optional; include it (with DB_TYPE=postgres) to supply
  * PG_BOSS_CONNECTION_CONFIG from the plugin. Core trims and assigns the returned values.
+ *
+ * With PLATFORM=dms (Ed-Fi API v8) the file holds the DMS secrets instead, any of:
+ *   {
+ *     "configServiceClientSecret": "<CMS read-only client secret>",
+ *     "configServiceEncryptionKey": "<CMS connection-string encryption key>",
+ *     "dataStores": { "1": { "ConnectionString": "host=...;..." } },
+ *     "pgBossConnectionConfig": { "adminConnection": "host=...;database=...;..." }
+ *   }
  */
 
 import { readFile } from 'node:fs/promises';
+import { isDmsPlatform } from '../platform.js';
 
 const ENV_VAR = 'APP_SECRETS_FILE';
 
@@ -61,6 +70,12 @@ export async function loadAppSecrets() {
   }
 
   const { odsConnectionStringEncryptionKey, oauth2PublicKeyPem, pgBossConnectionConfig } = secrets;
+
+  if (isDmsPlatform()) {
+    // Passed through as found; core checks each field and startup validation the combination
+    const fields = ['configServiceClientSecret', 'configServiceEncryptionKey', 'dataStores', 'pgBossConnectionConfig'];
+    return Object.fromEntries(fields.filter(field => secrets[field] !== undefined).map(field => [field, secrets[field]]));
+  }
 
   if (typeof odsConnectionStringEncryptionKey !== 'string' || !odsConnectionStringEncryptionKey.trim()) {
     throw new Error(`${ENV_VAR} (${filePath}) must include a non-empty string odsConnectionStringEncryptionKey`);

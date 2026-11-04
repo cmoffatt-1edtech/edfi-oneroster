@@ -32,6 +32,17 @@ describe('example app-secrets-file plugin', () => {
     oauth2PublicKeyPem: '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n'
   };
 
+  test('with PLATFORM=dms, passes the DMS secrets through and needs no ODS secret', async () => {
+    const saved = process.env.PLATFORM;
+    process.env.PLATFORM = 'dms';
+    try {
+      process.env.APP_SECRETS_FILE = await writeSecrets({ configServiceClientSecret: 's', configServiceEncryptionKey: 'k', unrelated: 'x' });
+      await expect(loadAppSecrets()).resolves.toEqual({ configServiceClientSecret: 's', configServiceEncryptionKey: 'k' });
+    } finally {
+      if (saved === undefined) delete process.env.PLATFORM; else process.env.PLATFORM = saved;
+    }
+  });
+
   test('loads the required secrets from the JSON file', async () => {
     process.env.APP_SECRETS_FILE = await writeSecrets(validSecrets);
 

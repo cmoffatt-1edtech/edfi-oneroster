@@ -11,11 +11,12 @@ import {
   validateContextValue
 } from '../config/ods-context-config.js';
 import { validateContextValueFromDatabase } from '../services/odsContextValidationService.js';
+import { isDmsPlatform } from '../config/platform.js';
+import { getRouteContextConfig } from '../config/route-context-config.js';
+import { getDataStoreProvider } from '../platform/data-store-provider.js';
 import { getLogger } from '../utils/logger.js';
 
 const logger = getLogger('Discovery');
-
-const router = express.Router();
 
 /**
  * Middleware to validate ODS context value (e.g., school year)
@@ -113,33 +114,89 @@ function validateTenantMiddleware(req, res, next) {
   next();
 }
 
-const multiTenancyEnabled = isMultiTenancyEnabled();
-const contextConfig = getOdsContextConfig();
-
-// Mount routes based on configuration
-if (multiTenancyEnabled && contextConfig) {
-  // Multi-tenant with context: 3 routes
-  // 1. Full path with both parameters
-  router.get(`/:tenantId/:${contextConfig.parameterName}`, validateTenantMiddleware, validateContextMiddleware, getDiscovery);
-  // 2. Tenant only
-  router.get('/:tenantId', validateTenantMiddleware, getDiscovery);
-  // 3. Root path
-  router.get('/', getDiscovery);
-} else if (multiTenancyEnabled && !contextConfig) {
-  // Multi-tenant without context: 2 routes
-  // 1. Tenant path
-  router.get('/:tenantId', validateTenantMiddleware, getDiscovery);
-  // 2. Root path
-  router.get('/', getDiscovery);
-} else if (!multiTenancyEnabled && contextConfig) {
-  // Single-tenant with context: 2 routes
-  // 1. Context path
-  router.get(`/:${contextConfig.parameterName}`, validateContextMiddleware, getDiscovery);
-  // 2. Root path
-  router.get('/', getDiscovery);
-} else {
-  // Single-tenant without context: 1 route
-  router.get('/', getDiscovery);
+/**
+ * DMS (multi-tenant): an unknown tenant is 404, as in DMS discovery. Route qualifier values are not
+ * checked; DMS doesn't check them in discovery either.
+ */
+async function validateDmsTenantMiddleware(req, res, next) {
+  try {
+    if (await getDataStoreProvider().isTenant(req.params.tenantId)) {
+      return next();
+    }
+    return res.status(404).json({
+      error: 'The specified data could not be found.',
+      title: 'Not Found',
+      status: 404
+    });
+  } catch (error) {
+    logger.error({ err: error }, 'Error validating tenant');
+    return res.status(503).json({
+      error: 'The service is temporarily unable to validate the tenant.',
+      title: 'Service Unavailable',
+      status: 503
+    });
+  }
 }
 
-export default router;
+/**
+ * DMS: the root, the tenant, and each leading run of ROUTE_QUALIFIER_SEGMENTS after it, as DMS maps
+ * its own discovery routes (/, /{tenant}, /{tenant}/{districtId}, /{tenant}/{districtId}/{schoolYear}).
+ */
+function mountDmsRoutes(router) {
+  const multiTenancyEnabled = isMultiTenancyEnabled();
+  const qualifiers = getRouteContextConfig()?.parameterNames || [];
+  const leading = multiTenancyEnabled ? [':tenantId'] : [];
+  const tenantCheck = multiTenancyEnabled ? [validateDmsTenantMiddleware] : [];
+
+  router.get('/', getDiscovery);
+  if (multiTenancyEnabled) {
+    router.get('/:tenantId', ...tenantCheck, getDiscovery);
+  }
+  for (let count = 1; count <= qualifiers.length; count++) {
+    const path = [...leading, ...qualifiers.slice(0, count).map(name => `:${name}`)].join('/');
+    router.get(`/${path}`, ...tenantCheck, getDiscovery);
+  }
+}
+
+/** The discovery routes for the configuration at the time of the call. */
+export function createDiscoveryRouter() {
+  const router = express.Router();
+
+  if (isDmsPlatform()) {
+    mountDmsRoutes(router);
+    return router;
+  }
+
+  const multiTenancyEnabled = isMultiTenancyEnabled();
+  const contextConfig = getOdsContextConfig();
+
+  // Mount routes based on configuration
+  if (multiTenancyEnabled && contextConfig) {
+    // Multi-tenant with context: 3 routes
+    // 1. Full path with both parameters
+    router.get(`/:tenantId/:${contextConfig.parameterName}`, validateTenantMiddleware, validateContextMiddleware, getDiscovery);
+    // 2. Tenant only
+    router.get('/:tenantId', validateTenantMiddleware, getDiscovery);
+    // 3. Root path
+    router.get('/', getDiscovery);
+  } else if (multiTenancyEnabled && !contextConfig) {
+    // Multi-tenant without context: 2 routes
+    // 1. Tenant path
+    router.get('/:tenantId', validateTenantMiddleware, getDiscovery);
+    // 2. Root path
+    router.get('/', getDiscovery);
+  } else if (!multiTenancyEnabled && contextConfig) {
+    // Single-tenant with context: 2 routes
+    // 1. Context path
+    router.get(`/:${contextConfig.parameterName}`, validateContextMiddleware, getDiscovery);
+    // 2. Root path
+    router.get('/', getDiscovery);
+  } else {
+    // Single-tenant without context: 1 route
+    router.get('/', getDiscovery);
+  }
+
+  return router;
+}
+
+export default createDiscoveryRouter();

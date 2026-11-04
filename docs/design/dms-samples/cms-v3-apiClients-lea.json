@@ -1,0 +1,17 @@
+{
+  "id": 2,
+  "applicationId": 2,
+  "clientId": "<redacted>",
+  "clientUuid": "<redacted>",
+  "name": "OneRoster LEA",
+  "isApproved": true,
+  "creatorOwnershipTokenId": null,
+  "ownershipTokenIds": [],
+  "dataStoreIds": [
+    1
+  ],
+  "inheritsApplicationEducationOrganizations": true,
+  "educationOrganizationIds": [
+    255901
+  ]
+}

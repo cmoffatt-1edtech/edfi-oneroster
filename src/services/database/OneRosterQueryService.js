@@ -4,6 +4,7 @@
  */
 
 import AuthorizationQueryService from './AuthorizationQueryService.js';
+import { getAuthObjectMap } from '../../platform/auth-object-map.js';
 import {
   DEFAULT_PAGE_SIZE,
   DEFAULT_MAX_PAGE_SIZE,
@@ -50,8 +51,8 @@ class OneRosterQueryService {
     this.DEFAULT_PAGE_SIZE = DEFAULT_PAGE_SIZE;
     this.MAX_PAGE_SIZE = resolveMaxPageSize(process.env.MAX_PAGE_SIZE);
 
-    // Initialize authorization service
-    this.authService = new AuthorizationQueryService(knexInstance, schema);
+    // Initialize authorization service against the platform's auth objects
+    this.authService = new AuthorizationQueryService(knexInstance, schema, 'auth', getAuthObjectMap());
   }
 
   /**

@@ -4,6 +4,7 @@ import { knexManager } from '../config/knex-factory.js';
 import { parseConnectionString } from '../config/multi-tenancy-config.js';
 import { buildPostgresClientOptions } from '../config/db-connection.js';
 import { getLogger } from '../utils/logger.js';
+import { refreshView } from './viewRefresh.js';
 
 const logger = getLogger('CronService');
 
@@ -102,8 +103,11 @@ export async function initializeCronJobs() {
                 logger.warn(`Schema 'oneroster12' not found on ODS instance - skipping refresh for oneroster12.${endpoint}`);
                 continue;
               }
-              await knexInstance.raw(`REFRESH MATERIALIZED VIEW oneroster12.${endpoint}`);
-              logger.debug(`Successfully refreshed oneroster12.${endpoint}`);
+              // On DMS, skipped while the view's sources are unchanged (see viewRefresh.js)
+              const result = await refreshView(knexInstance, endpoint);
+              if (result.refreshed) {
+                logger.debug(`Successfully refreshed oneroster12.${endpoint}`);
+              }
             }
           }
         } catch (error) {

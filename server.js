@@ -43,7 +43,7 @@ process.on('SIGUSR2', () => {
 // Use dynamic imports to ensure dotenv is loaded before app initialization
 const { default: app } = await import('./src/app.js');
 const { initializeCronJobs } = await import('./src/services/cronService.js');
-const { odsInstanceService } = await import('./src/services/database/OdsInstanceService.js');
+const { getDataStoreProvider } = await import('./src/platform/data-store-provider.js');
 const { knexManager } = await import('./src/config/knex-factory.js');
 
 const PORT = process.env.PORT || 3000;
@@ -121,12 +121,13 @@ async function gracefulShutdown(signal) {
         );
       }
 
-      // Close ODS Instance Service admin connections
-      logger.info('Closing ODS instance admin connections...');
+      // Close the data-store provider's connections (EdFi_Admin on the ODS/API)
+      logger.info('Closing data-store provider connections...');
       cleanupTasks.push(
-        odsInstanceService.destroy()
-          .then(() => logger.info('ODS instance connections closed'))
-          .catch(err => logger.error({ err }, 'Error closing ODS instance connections'))
+        Promise.resolve()
+          .then(() => getDataStoreProvider().destroy())
+          .then(() => logger.info('Data-store provider connections closed'))
+          .catch(err => logger.error({ err }, 'Error closing data-store provider connections'))
       );
 
       // Close all knex connection pools
