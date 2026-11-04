@@ -96,6 +96,60 @@ function Wait-ForOdsDatabaseReady {
   throw "ODS database '$($OdsConn['Database'])' was not reachable within $TimeoutSeconds seconds."
 }
 
+# Assessment rostering reads the Assessment Registration domain, new in Data Standard 5.2. Data
+# Standard 5.0 and 5.1 deploy the 5.2.0 artifacts, so its files are left out on an ODS without it.
+function Test-OdsHasAssessmentRegistration {
+  param(
+    [string]
+    $ContainerId,
+
+    [hashtable]
+    $OdsConn,
+
+    [string]
+    [ValidateSet('postgres', 'mssql')]
+    $DbType = 'postgres'
+  )
+
+  if ($DbType -eq 'mssql') {
+    $checkArgs = @(
+      'exec',
+      $ContainerId,
+      '/opt/mssql-tools18/bin/sqlcmd',
+      '-C',
+      '-h', '-1',
+      '-W',
+      '-S', "$($OdsConn['Host']),$($OdsConn['Port'])",
+      '-U', "$($OdsConn['Username'])",
+      '-P', "$($OdsConn['Password'])",
+      '-d', "$($OdsConn['Database'])",
+      '-Q', "SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID('edfi.AssessmentAdministration', 'U') IS NULL THEN 0 ELSE 1 END"
+    )
+  }
+  else {
+    $checkArgs = @(
+      'exec',
+      '-e', "PGPASSWORD=$($OdsConn['Password'])",
+      $ContainerId,
+      'psql',
+      "--host=$($OdsConn['Host'])",
+      "--port=$($OdsConn['Port'])",
+      "--username=$($OdsConn['Username'])",
+      "--dbname=$($OdsConn['Database'])",
+      '--no-password',
+      '--tuples-only',
+      '--no-align',
+      "--command=SELECT (to_regclass('edfi.assessmentadministration') IS NOT NULL)::int"
+    )
+  }
+
+  $output = (& docker @checkArgs 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not check the ODS for the Assessment Registration tables. Output: $output"
+  }
+  return $output -eq '1'
+}
+
 function ConvertFrom-DbConnectionString {
   param(
     [string]
@@ -343,6 +397,13 @@ function Invoke-OneRosterBootstrapScript {
 
   if ($sqlFiles.Count -eq 0) {
     throw "No SQL files found in $artifactDir"
+  }
+
+  $assessmentFiles = @($sqlFiles | Where-Object { $_.Name -like 'assessment*' })
+  if ($assessmentFiles.Count -gt 0 -and
+      -not (Test-OdsHasAssessmentRegistration -ContainerId $ContainerId -OdsConn $odsConn -DbType $DbType)) {
+    Write-Host "The ODS has no Assessment Registration tables (Data Standard before 5.2): skipping $($assessmentFiles.Name -join ', ')." -ForegroundColor Yellow
+    $sqlFiles = @($sqlFiles | Where-Object { $_.Name -notlike 'assessment*' })
   }
 
   Write-Host "Running $($sqlFiles.Count) SQL file(s) from $artifactDir..." -ForegroundColor Cyan

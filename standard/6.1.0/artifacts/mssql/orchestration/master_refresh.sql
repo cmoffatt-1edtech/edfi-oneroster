@@ -74,8 +74,17 @@ BEGIN
             ('classes'),           -- 4. Classes (depends on courses, orgs, academicsessions)
             ('demographics'),      -- 5. Demographics (no dependencies but related to users)
             ('users'),             -- 6. Users (depends on orgs, complex)
-            ('enrollments')        -- 7. Enrollments (depends on classes, users)
-    ) AS refresh_order(table_name);
+            ('enrollments'),       -- 7. Enrollments (depends on classes, users)
+            -- Assessment rostering: no dependencies on the tables above or on each other
+            ('assessments'),       -- 8.
+            ('assessmentofferings'), -- 9.
+            ('assessmentenrollments'), -- 10.
+            ('assessmentauthorgs') -- 11. Read by the assessments and offerings authorization filters
+    ) AS refresh_order(table_name)
+    -- The assessment rostering procedures may not be deployed (a manual deploy of the rostering files
+    -- only); skip those rather than fail. A missing rostering procedure still fails.
+    WHERE refresh_order.table_name NOT LIKE 'assessment%'
+       OR OBJECT_ID('oneroster12.sp_refresh_' + refresh_order.table_name, 'P') IS NOT NULL;
 
     OPEN refresh_cursor;
     FETCH NEXT FROM refresh_cursor INTO @CurrentTable;
@@ -219,14 +228,17 @@ BEGIN
     PRINT '';
     PRINT '=== Current Row Counts ===';
 
-    DECLARE @RowCountQuery NVARCHAR(MAX) = '';
-    SELECT @RowCountQuery = @RowCountQuery +
-        'SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name +
-        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 7 THEN ' UNION ALL ' ELSE '' END
+    -- STRING_AGG, not concatenation into the variable, whose row order SQL Server doesn't guarantee
+    DECLARE @RowCountQuery NVARCHAR(MAX);
+    SELECT @RowCountQuery = STRING_AGG(
+        CAST('SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name AS NVARCHAR(MAX)),
+        ' UNION ALL ') WITHIN GROUP (ORDER BY table_name)
     FROM (VALUES
         ('academicsessions'), ('classes'), ('courses'), ('demographics'),
-        ('enrollments'), ('orgs'), ('users')
-    ) AS tables(table_name);
+        ('enrollments'), ('orgs'), ('users'),
+        ('assessments'), ('assessmentofferings'), ('assessmentenrollments'), ('assessmentauthorgs')
+    ) AS tables(table_name)
+    WHERE OBJECT_ID('oneroster12.' + table_name, 'U') IS NOT NULL;
 
     EXEC sp_executesql @RowCountQuery;
 
@@ -288,14 +300,17 @@ BEGIN
     PRINT '';
     PRINT '=== Current Row Counts ===';
 
-    DECLARE @RowCountQuery NVARCHAR(MAX) = '';
-    SELECT @RowCountQuery = @RowCountQuery +
-        'SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name +
-        CASE WHEN ROW_NUMBER() OVER (ORDER BY table_name) < 7 THEN ' UNION ALL ' ELSE '' END
+    -- STRING_AGG, not concatenation into the variable, whose row order SQL Server doesn't guarantee
+    DECLARE @RowCountQuery NVARCHAR(MAX);
+    SELECT @RowCountQuery = STRING_AGG(
+        CAST('SELECT ''' + table_name + ''' AS TableName, COUNT(*) AS [RowCount] FROM oneroster12.' + table_name AS NVARCHAR(MAX)),
+        ' UNION ALL ') WITHIN GROUP (ORDER BY table_name)
     FROM (VALUES
         ('academicsessions'), ('classes'), ('courses'), ('demographics'),
-        ('enrollments'), ('orgs'), ('users')
-    ) AS tables(table_name);
+        ('enrollments'), ('orgs'), ('users'),
+        ('assessments'), ('assessmentofferings'), ('assessmentenrollments'), ('assessmentauthorgs')
+    ) AS tables(table_name)
+    WHERE OBJECT_ID('oneroster12.' + table_name, 'U') IS NOT NULL;
 
     EXEC sp_executesql @RowCountQuery;
 END
