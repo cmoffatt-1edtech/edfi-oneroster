@@ -40,7 +40,7 @@ CREATE TABLE oneroster12.refresh_errors (
 );
 GO
 
--- 'Partial Success' is what sp_refresh_all records when some tables failed.
+-- 'Partial Success' is what sp_refresh_all records when some tables or the post-refresh hook failed.
 IF OBJECT_ID('oneroster12.refresh_history', 'U') IS NULL
 CREATE TABLE oneroster12.refresh_history (
     history_id INT IDENTITY(1,1) PRIMARY KEY,

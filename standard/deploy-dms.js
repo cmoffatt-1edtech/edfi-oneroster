@@ -412,20 +412,21 @@ async function refreshTrackingArtifact(session, engine, allArtifacts, deployedAr
   return { file: '(generated) refresh tracking', sql: buildRefreshTrackingSql(sourcesByView, deployedViews), sourcesByView };
 }
 
-/** SQL Server: fill the tables, through the master procedure on a full deployment. */
-async function refreshMssql(session, projections, { full }) {
+/**
+ * SQL Server: fill the tables with their sp_refresh_<table> procedures, in sp_refresh_all's order.
+ * They run inside the deployment's transaction, so a procedure that fails (a renamed column, say)
+ * undoes the deployment; sp_refresh_all itself refuses an open transaction. A post-refresh hook
+ * runs with the next sp_refresh_all, as after the ODS deploy's refresh.
+ */
+async function refreshMssql(session, projections) {
   const started = Date.now();
-  if (full) {
-    await session.run('exec oneroster12.sp_refresh_all @ForceRefresh = 1');
-  } else {
-    for (const name of REFRESH_ORDER.filter(n => projections.includes(n))) {
-      await session.run(`exec oneroster12.${quoteMssql(`sp_refresh_${name}`)}`);
-    }
+  for (const name of REFRESH_ORDER.filter(n => projections.includes(n))) {
+    await session.run(`exec oneroster12.${quoteMssql(`sp_refresh_${name}`)}`);
   }
   return Date.now() - started;
 }
 
-async function applyArtifacts(session, dbType, engine, artifacts, { commit, full }) {
+async function applyArtifacts(session, dbType, engine, artifacts, { commit }) {
   const timings = [];
   const projections = artifacts.flatMap(({ sql: text }) => findProjections(text, engine.projectionPattern))
     .filter(name => !name.startsWith('refresh_'));
@@ -441,7 +442,7 @@ async function applyArtifacts(session, dbType, engine, artifacts, { commit, full
       timings.push({ file, ms: Date.now() - started });
     }
     if (dbType === 'mssql') {
-      timings.push({ file: full ? 'sp_refresh_all' : 'sp_refresh_*', ms: await refreshMssql(session, projections, { full }) });
+      timings.push({ file: 'sp_refresh_*', ms: await refreshMssql(session, projections) });
     }
 
     const counts = {};
@@ -527,7 +528,7 @@ async function deploy(args, connection) {
       console.log(`Refresh tracking: ${tracked.length} views, ${new Set(tracked.flatMap(t => t.resources)).size} source resources`);
     }
 
-    const { timings, counts } = await applyArtifacts(session, args.dbType, engine, artifacts, { commit: !args.check, full: !args.only });
+    const { timings, counts } = await applyArtifacts(session, args.dbType, engine, artifacts, { commit: !args.check });
     for (const { file, ms } of timings) console.log(`  ${file.padEnd(36)} ${String(ms).padStart(6)} ms`);
     for (const [view, n] of Object.entries(counts)) console.log(`  oneroster12.${view.padEnd(18)} ${n} rows`);
     console.log(args.check ? 'Check passed; nothing was changed.' : 'Deployed.');
