@@ -21,8 +21,11 @@ describe.each([
   ['5.2.0', 'pgsql'],
   ['5.2.0', 'dms-pgsql'],
   ['5.2.0', 'mssql'],
+  ['5.2.0', 'dms-mssql'],
   ['6.1.0', 'pgsql'],
-  ['6.1.0', 'mssql']
+  ['6.1.0', 'dms-pgsql'],
+  ['6.1.0', 'mssql'],
+  ['6.1.0', 'dms-mssql']
 ])('standard/%s/artifacts/%s', (version, set) => {
   const texts = FILES.map(file => read(version, set, file)).join('\n');
   const mssql = set.endsWith('mssql');
