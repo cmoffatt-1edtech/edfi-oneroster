@@ -952,3 +952,20 @@ the service single-tenant on the rebuilt image.
 | Multi-tenant stack | The results table above |
 | Restored single-tenant DS 5.2, image with the fix | Bruno 54 requests 199/199 and 14 requests 20/20; `compare-dms-database.sh` 0 differences; `compare-api.js ods-vs-dms` 270 requests, the same 13 known, 0 unexplained; `setup-dms-clients.ps1` rerun without `-Tenant` kept everything (clients file byte-identical) |
 | Leak check | The secret values of every env file the run wrote, plus the earlier list, against the diff, the run notes and README: 0 matches |
+
+## Follow-up: upstream #168 on DMS SQL Server (2026-11-03)
+
+Upstream #168 (ONEROSTER-138) changed the ODS `sp_refresh_all`: it records the post-refresh hook in
+`refresh_history`, reports `Partial Success` when the hook fails, rolls back a transaction the hook
+leaves open, and refuses to run inside an open transaction.
+
+| Area | Where | What |
+| --- | --- | --- |
+| Refresh | `standard/{5.2.0,6.1.0}/artifacts/dms-mssql/orchestration/master_refresh.sql` | #168's change, so the DMS copy is again the ODS procedure apart from its header line. |
+| Deploy | `standard/deploy-dms.js` | Fills the tables with the `sp_refresh_<table>` procedures in `sp_refresh_all`'s order on every deployment (it ran `sp_refresh_all` inside its transaction, which #168 refuses). A post-refresh hook runs with the next `sp_refresh_all`, as after the ODS deploy's refresh. `REFRESH_ORDER` is exported. |
+| Tests | `deploy-dms.test.js` | Each DMS `master_refresh.sql` must equal the ODS one apart from the header line. |
+
+| Check | Result |
+| --- | --- |
+| Unit tests | 975 pass, 4 skipped; build check passes. |
+| SQL Server 2022, a scratch DS 5.2 data store from the emitted DDL | Full deploy and `--check` pass (`sp_refresh_*` in the transaction). `sp_refresh_all` inside a transaction: refused. Outside: `ALL_TABLES` `Success`. With a hook that divides by zero inside its own transaction: `post_hook` `Failed`, `ALL_TABLES` `Partial Success`, the error in `refresh_errors`, no transaction left open. With a hook that works: both `Success`. Database and Agent job removed afterwards. |
