@@ -23,8 +23,9 @@
  *      outside the fixture, except for the full-access caller.
  *
  * On SQL Server (--engine mssql) the oneroster12 objects are tables filled by refresh procedures, so
- * step 2 is oneroster12.sp_refresh_all inside the transaction instead: the real tables hold the
- * fixture until the rollback, and readers of them wait until then. Point it at a copy of the ODS or
+ * step 2 runs the oneroster12.sp_refresh_<table> procedures inside the transaction instead (in
+ * sp_refresh_all's order; sp_refresh_all itself refuses an open transaction): the real tables hold
+ * the fixture until the rollback, and readers of them wait until then. Point it at a copy of the ODS or
  * data store, not one serving traffic. tests/mssql-fixture-loader.js loads the fixture (foreign keys
  * and triggers off for the tables it writes, negative explicit ids so no identity or sequence moves).
  * Identity values the refresh history uses are not rolled back.
@@ -51,6 +52,7 @@ import {
   FIXTURE, toOdsHierarchyRows, toDmsHierarchyRows
 } from './dms-parity-fixture.js';
 import { MSSQL_PLATFORMS, MssqlLoader, loadMssqlNameMap, readIdentities, readMssqlSequences } from './mssql-fixture-loader.js';
+import { REFRESH_ORDER } from '../standard/deploy-dms.js';
 
 const SCRATCH = 'oneroster12_authmatrix';
 const VIEWS = ['assessments', 'assessmentofferings', 'assessmentenrollments'];
@@ -261,17 +263,23 @@ async function runMssqlPlatform(platform, connectionString) {
         await loader.insert(row);
       }
 
-      // The refresh procedures commit their own nested transactions; a failed one rolls back ours too
+      // sp_refresh_all refuses to run inside a transaction, so run the per-table procedures it runs, in
+      // its order. Each commits a nested transaction; a failed one rolls back ours too.
       const [{ last }] = mssqlRows(await trx.raw('select coalesce(max(history_id), 0) as last from oneroster12.refresh_history'));
-      await trx.raw('exec oneroster12.sp_refresh_all @ForceRefresh = 1');
-      const [{ open }] = mssqlRows(await trx.raw('select @@trancount as [open]'));
-      if (open !== 1) throw new Error(`sp_refresh_all left @@TRANCOUNT at ${open}`);
+      const procedures = new Set(mssqlRows(await trx.raw(
+        `select lower(name) as name from sys.procedures where schema_id = schema_id('oneroster12')`
+      )).map(row => row.name));
+      for (const table of REFRESH_ORDER.filter(name => procedures.has(`sp_refresh_${name}`))) {
+        await trx.raw(`exec oneroster12.sp_refresh_${table}`);
+        const [{ open }] = mssqlRows(await trx.raw('select @@trancount as [open]'));
+        if (open !== 1) throw new Error(`sp_refresh_${table} left @@TRANCOUNT at ${open}`);
+      }
       const refreshed = mssqlRows(await trx.raw(
         'select table_name as name, status from oneroster12.refresh_history where history_id > ?', [last]
       ));
       const notRefreshed = refreshed.filter(row => row.status !== 'Success').map(row => `${row.name} ${row.status}`);
       if (refreshed.length === 0 || notRefreshed.length) {
-        throw new Error(`sp_refresh_all: ${notRefreshed.join(', ') || 'no tables refreshed'}`);
+        throw new Error(`refresh: ${notRefreshed.join(', ') || 'no tables refreshed'}`);
       }
 
       await checkCallers(trx, 'oneroster12', platform, failures, report);

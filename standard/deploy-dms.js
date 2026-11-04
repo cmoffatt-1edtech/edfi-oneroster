@@ -76,7 +76,7 @@ const SETUP_FILE = '00_setup.sql';
 const SCHEMAS = ['edfi', 'dms', 'auth', 'tpdm'];
 // Refresh order of the ODS master procedure (standard/<ds>/artifacts/mssql/orchestration), then the
 // assessment rostering views, which only Data Standard 5.2 and later artifact sets have
-const REFRESH_ORDER = ['academicsessions', 'orgs', 'courses', 'classes', 'demographics', 'users', 'enrollments',
+export const REFRESH_ORDER = ['academicsessions', 'orgs', 'courses', 'classes', 'demographics', 'users', 'enrollments',
   'assessments', 'assessmentofferings', 'assessmentenrollments', 'assessmentauthorgs'];
 
 function quotePg(identifier) {
