@@ -19,6 +19,7 @@ const exists = (version, set, file) => fs.existsSync(path.join(STANDARD, version
 
 describe.each([
   ['5.2.0', 'pgsql'],
+  ['5.2.0', 'dms-pgsql'],
   ['5.2.0', 'mssql'],
   ['6.1.0', 'pgsql'],
   ['6.1.0', 'mssql']
