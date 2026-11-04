@@ -100,7 +100,12 @@ flags) so they behave as a single logical stack.
 | --- | --- | --- |
 | `edfi-services.yml` | Core Ed-Fi ODS/API dependencies. | `db-ods`, `db-admin`, `v7-single-api`, `swagger`, `pgadmin4` |
 | `nginx-compose.yml` | HTTPS reverse proxy that fronts all APIs and terminates TLS using the templates under `stack/ssl`. | `nginx` |
-| `oneroster-service.yml` | Builds and runs the OneRoster Node.js API, wiring it to the Ed-Fi ODS database and JWT issuer. | `oneroster-api` |
+| `oneroster-service.yml` | Builds and runs the OneRoster Node.js API, wiring it to the Ed-Fi ODS database and JWT issuer. Passes `ASSESSMENT_ROSTERING_ENABLED` from the env file (default `false`). | `oneroster-api` |
+
+The SQL Server compose file (`mssql/single-tenant/docker-compose-mssql.yml`) names its volumes
+`vol-db-ods` and `vol-db-admin`, the same as the PostgreSQL stack's. To run both on one machine, start
+SQL Server with `docker compose` directly and add `mssql/single-tenant/docker-compose-mssql.own-volumes.yml`,
+which renames them (its header has the command); `start-services.ps1` takes no extra compose file.
 
 ## Security baseline for custom compose files
 

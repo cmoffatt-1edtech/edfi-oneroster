@@ -49,14 +49,22 @@ psql -U <username> -d <dbname> -f standard/5.2.0/artifacts/pgsql/core/demographi
 psql -U <username> -d <dbname> -f standard/5.2.0/artifacts/pgsql/core/enrollments.sql
 psql -U <username> -d <dbname> -f standard/5.2.0/artifacts/pgsql/core/orgs.sql
 psql -U <username> -d <dbname> -f standard/5.2.0/artifacts/pgsql/core/users.sql
+# Assessment rostering: Data Standard 5.2 and later only (leave these out on 5.0 and 5.1)
+psql -U <username> -d <dbname> -f standard/5.2.0/artifacts/pgsql/core/assessments.sql
+psql -U <username> -d <dbname> -f standard/5.2.0/artifacts/pgsql/core/assessment_offerings.sql
+psql -U <username> -d <dbname> -f standard/5.2.0/artifacts/pgsql/core/assessment_enrollments.sql
+psql -U <username> -d <dbname> -f standard/5.2.0/artifacts/pgsql/core/assessment_auth_orgs.sql
 ```
 
-Or concatenate and run as a single script:
+Or concatenate and run as a single script (on Data Standard 5.0 and 5.1, leave out `assessment*.sql`):
 
 ```bash
 cat standard/5.2.0/artifacts/pgsql/core/*.sql > oneroster12.sql
 psql -U <username> -d <dbname> -f oneroster12.sql
 ```
+
+`deploy-pgsql.js` leaves the assessment rostering files out by itself when the ODS has no Assessment
+Registration tables (Data Standard before 5.2).
 
 ## 3. SQL Artifacts
 
@@ -72,5 +80,6 @@ This directory contains SQL that creates OneRoster 1.2 materialized views on Ed-
 * `enrollments.sql` — builds `enrollments` from Ed-Fi `staffSectionAssn`, `studentSectionAssn`, and `sections`
 * `orgs.sql` — builds `orgs` from Ed-Fi `schools`, `localEducationAgencies`, and `stateEducationAgencies`
 * `users.sql` — builds `users` from Ed-Fi `staffs`, `schools`, `staffSectionAssociations`, `staffSchoolAssociations`, `students`, `studentSchoolAssociations`, and `studentEducationOrganizationAssociations`
+* `assessments.sql`, `assessment_offerings.sql`, `assessment_enrollments.sql`, `assessment_auth_orgs.sql` — assessment rostering (provisional, `ASSESSMENT_ROSTERING_ENABLED`), from the Ed-Fi Assessment Registration domain (Data Standard 5.2 and later); see `docs/design/assessment-rostering-mappings.md`
 
 This OneRoster 1.2 PostgreSQL implementation is based on the [OneRoster 1.1 Snowflake implementation](https://github.com/edanalytics/edu_ext_oneroster/tree/main/models/oneroster_1_1) in [EDU](https://enabledataunion.org/).
