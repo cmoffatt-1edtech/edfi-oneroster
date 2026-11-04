@@ -1,0 +1,25 @@
+meta {
+  name: Teacher Enrollments Are Empty
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments?filter=role%3D'teacher'
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("0 assessmentEnrollments", function() {
+    expect(res.getBody().assessmentEnrollments).to.have.lengthOf(0);
+  });
+}

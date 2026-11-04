@@ -1,0 +1,21 @@
+meta {
+  name: Other School Cannot Read Enrollment
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments/9d8dbd5010a90daca58f4e3e3bf31173
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-school-token}}
+}
+
+tests {
+  test("status is 404", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}

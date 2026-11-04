@@ -1,0 +1,35 @@
+meta {
+  name: Lea Lists Assessment Offerings
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("1 assessmentOfferings", function() {
+    expect(res.getBody().assessmentOfferings).to.have.lengthOf(1);
+  });
+
+  test("the ACT sitting, assigned by the LEA, with one testing window", function() {
+    const o = res.getBody().assessmentOfferings[0];
+    expect(o.sourcedId).to.equal('50f7682c5b6ac5078efa3fb97df56acb');
+    expect(o.title).to.equal('Central Texas Assessment Institute (CTAI)');
+    expect(o.assessment).to.deep.equal({ href: '/assessments/942f89174d3829db3412893c78f6b4e0', sourcedId: '942f89174d3829db3412893c78f6b4e0', type: 'assessment' });
+    expect(o.org).to.deep.equal({ href: '/orgs/68d5a7b8c595bdb53e472ac9585a2e64', sourcedId: '68d5a7b8c595bdb53e472ac9585a2e64', type: 'org' });
+    expect(o.testingWindows).to.deep.equal([{ startDate: '2021-12-01', endDate: '2021-12-01' }]);
+    expect(o).to.not.have.any.keys('assessmentSourcedId', 'class', 'academicSession');
+  });
+}

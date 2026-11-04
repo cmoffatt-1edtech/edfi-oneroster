@@ -1,0 +1,33 @@
+meta {
+  name: Lea Reads Assessment
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessments/942f89174d3829db3412893c78f6b4e0
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("The ACT with Writing", function() {
+    const a = res.getBody().assessment;
+    expect(a.sourcedId).to.equal('942f89174d3829db3412893c78f6b4e0');
+    expect(a.identifier).to.equal('ACT-ABW');
+    expect(a.title).to.equal('The ACT with Writing');
+    expect(a.category).to.equal('College entrance exam');
+    expect(a.subjects).to.deep.equal(['English', 'English Language Arts', 'Mathematics', 'Reading', 'Science', 'Social Studies', 'Writing']);
+    expect(a.grades).to.deep.equal(['Eleventh grade', 'No grade level', 'Tenth grade', 'Twelfth grade']);
+    expect(a).to.not.have.property('org');
+    expect(a.metadata.edfi.naturalKey).to.deep.equal({ namespace: 'uri://ed-fi.org/Assessment', assessmentIdentifier: 'ACT-ABW' });
+  });
+}

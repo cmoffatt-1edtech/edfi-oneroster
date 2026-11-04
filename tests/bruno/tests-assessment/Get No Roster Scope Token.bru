@@ -1,0 +1,32 @@
+meta {
+  name: Get No Roster Scope Token
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{oauthUrl}}
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "grant_type": "client_credentials",
+    "client_id": "{{noRosterClientId}}",
+    "client_secret": "{{noRosterClientSecret}}",
+    "scope": "{{noRosterScope}}"
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    bru.setEnvVar('ar-no-roster-token', res.getBody().access_token);
+  }
+}
+
+tests {
+  test("token issued", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

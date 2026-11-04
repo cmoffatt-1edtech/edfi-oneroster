@@ -10,6 +10,11 @@
  * non-Teacher-of-Record positions, several races and SEOAs, birth place, courses owned by an LEA or the
  * state, several school years, calendars and class periods, and a school with no LEA.
  *
+ * It also holds the assessment registration data for the assessment rostering projections
+ * (docs/design/assessment-rostering-mappings.md): a second district, a testing service center that
+ * OneRoster doesn't publish, offerings assigned at each level, several and open-ended testing windows,
+ * a student at two schools, and keys with delimiters, mixed case and a non-ASCII character.
+ *
  * The data is described once, by natural key. toOdsRows writes it to the ODS/API 7.3 tables and
  * toDmsRows to the DMS relational tables (both PostgreSQL, Data Standard 5.2). Only the tables and
  * columns the projections read are filled, so tests/compare-dms-fixture.js loads the rows with
@@ -34,6 +39,10 @@ export const CHARTER_LEA = 990002; // an LEA with no state education agency
 export const HIGH = 990001001;
 export const MIDDLE = 990001002;
 export const LAB = 990009001; // a school with no LEA
+// Assessment rostering: LEA is district A (schools HIGH and MIDDLE), LEA_B district B
+export const LEA_B = 990003;
+export const SCHOOL_B1 = 990003001;
+export const SERVICE_CENTER = 990800; // an organization the orgs view doesn't publish
 
 const LAST_MODIFIED = '2026-02-01T08:00:00Z';
 // The ODS ranks a staff member's schools by StaffSchoolAssociation createdate and DMS by "DocumentId".
@@ -75,8 +84,19 @@ const D = {
   unmappedClassification: descriptor('StaffClassificationDescriptor', 'Teacher', UNMAPPED),
   teacherOfRecord: descriptor('ClassroomPositionDescriptor', 'Teacher of Record'),
   substitute: descriptor('ClassroomPositionDescriptor', 'Substitute Teacher'),
-  unmappedPosition: descriptor('ClassroomPositionDescriptor', 'Teacher of Record', UNMAPPED)
+  unmappedPosition: descriptor('ClassroomPositionDescriptor', 'Teacher of Record', UNMAPPED),
+  stateAssessment: descriptor('AssessmentCategoryDescriptor', 'State assessment'),
+  mathematics: descriptor('AcademicSubjectDescriptor', 'Mathematics'),
+  reading: descriptor('AcademicSubjectDescriptor', 'Reading'),
+  writing: descriptor('AcademicSubjectDescriptor', 'Writing'),
+  // Local subject codes in mixed case and with punctuation, which locale-aware sorts order differently
+  localSubjectLower: descriptor('AcademicSubjectDescriptor', 'ab', UNMAPPED),
+  localSubjectUpper: descriptor('AcademicSubjectDescriptor', 'Ac', UNMAPPED),
+  localSubjectHyphen: descriptor('AcademicSubjectDescriptor', 'Re-test', UNMAPPED),
+  computerBased: descriptor('PlatformTypeDescriptor', 'Computer-based')
 };
+
+const FX_ASSESSMENT = 'uri://fixture.edfi-oneroster.test/Assessment';
 
 /** { namespace, codeValue, type } of a descriptor URI such as uri://ed-fi.org/RaceDescriptor#White. */
 export function parseDescriptorUri(uri) {
@@ -89,12 +109,15 @@ export const FIXTURE = {
   stateEducationAgencies: [{ id: SEA, name: 'Fixture State Education Agency' }],
   localEducationAgencies: [
     { id: LEA, name: 'Fixture Unified School District', sea: SEA, category: D.leaCategory },
-    { id: CHARTER_LEA, name: 'Fixture Charter District', sea: null, category: D.leaCategory }
+    { id: CHARTER_LEA, name: 'Fixture Charter District', sea: null, category: D.leaCategory },
+    { id: LEA_B, name: 'Fixture Second District', sea: SEA, category: D.leaCategory }
   ],
+  educationServiceCenters: [{ id: SERVICE_CENTER, name: 'Fixture Testing Service Center' }],
   schools: [
     { id: HIGH, name: 'Fixture High School', lea: LEA },
     { id: MIDDLE, name: 'Fixture Middle School', lea: LEA },
-    { id: LAB, name: 'Fixture Lab School', lea: null }
+    { id: LAB, name: 'Fixture Lab School', lea: null },
+    { id: SCHOOL_B1, name: 'Fixture B1 School', lea: LEA_B }
   ],
 
   // Instructional days per school and year span every calendar the school has; the LEA's school year
@@ -150,7 +173,9 @@ export const FIXTURE = {
     { uniqueId: 'FX-STU-2', firstName: 'Ben', lastName: 'Brown', preferredLastName: 'Browne', birthDate: '2010-07-08', sex: D.unmappedSex },
     { uniqueId: 'FX-STU-3', firstName: 'Cara', lastName: 'Chen', birthDate: '2011-01-15' },
     { uniqueId: 'FX-STU-4', firstName: 'Dev', lastName: 'Diaz', birthDate: '2010-11-30' },
-    { uniqueId: 'FX-STU-5', firstName: 'Eve', lastName: 'Evans', birthDate: '2012-02-29' }
+    { uniqueId: 'FX-STU-5', firstName: 'Eve', lastName: 'Evans', birthDate: '2012-02-29' },
+    { uniqueId: 'FX-STU-6', firstName: 'Fay', lastName: 'Fox', birthDate: '2010-05-05' },
+    { uniqueId: 'FX-STU-7', firstName: 'Gus', lastName: 'Gray', birthDate: '2010-06-06' }
   ],
   studentSchoolAssociations: [
     // FX-STU-1: two schools, no primary flag; the later entry is primary
@@ -164,8 +189,12 @@ export const FIXTURE = {
     { student: 'FX-STU-3', school: HIGH, entryDate: '2025-01-06', grade: D.tenthGrade },
     // FX-STU-4: same entry date at two schools; the lower schoolId is primary, the higher grade code wins
     { student: 'FX-STU-4', school: HIGH, entryDate: '2025-08-11', grade: D.ninthGrade },
-    { student: 'FX-STU-4', school: MIDDLE, entryDate: '2025-08-11', grade: D.tenthGrade }
+    { student: 'FX-STU-4', school: MIDDLE, entryDate: '2025-08-11', grade: D.tenthGrade },
     // FX-STU-5: no school
+    // FX-STU-6: district B only; FX-STU-7: one school in each district
+    { student: 'FX-STU-6', school: SCHOOL_B1, entryDate: '2025-08-11', grade: D.tenthGrade },
+    { student: 'FX-STU-7', school: HIGH, entryDate: '2025-08-11', grade: D.tenthGrade },
+    { student: 'FX-STU-7', school: SCHOOL_B1, entryDate: '2025-08-12', grade: D.tenthGrade }
   ],
   studentEducationOrganizationAssociations: [
     {
@@ -189,7 +218,10 @@ export const FIXTURE = {
         { type: D.homeEmail, address: 'dev.home@example.com', doNotPublish: false }
       ],
       ids: [{ system: D.studentDistrictId, code: 'GB-1004' }]
-    }
+    },
+    // assessment registrations reference these
+    { student: 'FX-STU-6', org: LEA_B, hispanic: false },
+    { student: 'FX-STU-7', org: LEA, hispanic: false }
   ],
   studentSectionAssociations: [
     { student: 'FX-STU-1', section: 'algebra-2026', begin: '2025-08-11' },
@@ -267,6 +299,56 @@ export const FIXTURE = {
     { contact: 'FX-CON-1', student: 'FX-STU-4' },
     { contact: 'FX-CON-2', student: 'FX-STU-2' },
     { contact: 'FX-CON-4', student: 'FX-STU-5' }
+  ],
+
+  // Assessment registration. Keys are natural keys; offerings name their assessment by key.
+  assessments: [
+    // no defining org: visible to every caller; several subjects and grades
+    {
+      key: 'math', namespace: FX_ASSESSMENT, identifier: 'FX-Math', title: 'Fixture Mathematics', version: 2,
+      category: D.stateAssessment, subjects: [D.reading, D.mathematics], grades: [D.tenthGrade, D.ninthGrade],
+      family: 'Fixture Family', form: 'Form A', revisionDate: '2025-07-01', adaptive: true
+    },
+    // defined by an organization OneRoster doesn't publish: no org reference, id in metadata
+    { key: 'science', namespace: FX_ASSESSMENT, identifier: 'FX-Science', title: 'Fixture Science', definingOrg: SERVICE_CENTER },
+    // defined by district B, never offered: visible up and down district B only
+    { key: 'writing', namespace: FX_ASSESSMENT, identifier: 'FX-Writing', title: 'Fixture Writing', definingOrg: LEA_B, subjects: [D.writing] },
+    // these two keys collide when lower-cased parts are joined with '-' (sourcedId 953301f4...)
+    { key: 'collision-a', namespace: 'uri://example.org/Assessment', identifier: 'TEST-PART1', title: 'Collision A' },
+    { key: 'collision-b', namespace: 'uri://example.org/Assessment-TEST', identifier: 'PART1', title: 'Collision B' },
+    // backslash, pipe, hyphen, mixed case and a non-ASCII character; a title that looks like JSON
+    { key: 'escapes', namespace: FX_ASSESSMENT, identifier: 'Esc\\Back|Pipe-Ñu', title: '[Pilot]' },
+    // local subject codes: listed by code point, the same on every engine and locale
+    { key: 'order', namespace: FX_ASSESSMENT, identifier: 'FX-Order', title: 'Fixture Order', subjects: [D.localSubjectLower, D.localSubjectHyphen, D.localSubjectUpper] },
+    // defined and offered (O5) only by the service center: nobody reaches it, not even a caller who
+    // reaches every published organization
+    { key: 'vendor', namespace: FX_ASSESSMENT, identifier: 'FX-Vendor-Pilot', title: 'Fixture Vendor Pilot', definingOrg: SERVICE_CENTER }
+  ],
+  assessmentAdministrations: [
+    // O1: assigned by the state; several windows, the last open-ended; participation changed later
+    {
+      key: 'O1', assessment: 'math', assigning: SEA, identifier: 'Spring Window|A',
+      periods: [{ begin: '2026-04-01', end: '2026-04-02' }, { begin: '2026-03-01', end: '2026-03-05' }, { begin: '2026-05-01', end: null }],
+      participating: [{ org: LEA_B, lastModified: '2026-02-06T10:00:00Z' }, { org: LEA }]
+    },
+    // O2: assigned by district A, no windows; only HIGH takes part, so MIDDLE doesn't see it
+    { key: 'O2', assessment: 'math', assigning: LEA, identifier: 'District Retest', periods: [], participating: [{ org: HIGH }] },
+    // O3: assigned by the service center, no participation; reachable only through its registration school
+    { key: 'O3', assessment: 'science', assigning: SERVICE_CENTER, identifier: 'Vendor Sitting', periods: [{ begin: '2026-02-10', end: '2026-02-10' }], participating: [] },
+    // O4: assigned by district B with district A taking part; no registrations. District B's own
+    // school doesn't see it: going up, the assigning organization counts only without participants
+    { key: 'O4', assessment: 'math', assigning: LEA_B, identifier: 'B Sitting', periods: [{ begin: '2026-03-15', end: '2026-03-20' }], participating: [{ org: LEA }] },
+    // O5: the service center's own sitting, with no participation or registrations
+    { key: 'O5', assessment: 'vendor', assigning: SERVICE_CENTER, identifier: 'Vendor Pilot', periods: [], participating: [] }
+  ],
+  studentAssessmentRegistrations: [
+    { administration: 'O1', student: 'FX-STU-1', school: HIGH, org: LEA, grade: D.tenthGrade, platform: D.computerBased, lastModified: '2026-02-07T09:00:00Z' },
+    { administration: 'O1', student: 'FX-STU-6', school: SCHOOL_B1, org: LEA_B },
+    { administration: 'O2', student: 'FX-STU-1', school: HIGH, org: LEA },
+    // the testing organization (district A) must not widen access; the reporting one isn't published
+    { administration: 'O3', student: 'FX-STU-6', school: SCHOOL_B1, org: LEA_B, testingOrg: LEA, reportingOrg: SERVICE_CENTER },
+    // FX-STU-7 is at a district B school too, but registered through district A: district B can't see it
+    { administration: 'O1', student: 'FX-STU-7', school: HIGH, org: LEA }
   ]
 };
 
@@ -329,6 +411,10 @@ export function toOdsRows(fixture, alloc) {
   for (const school of fixture.schools) {
     educationOrganization(school, 'edfi.School');
     add('school', { schoolid: school.id, localeducationagencyid: school.lea });
+  }
+  for (const center of fixture.educationServiceCenters ?? []) {
+    educationOrganization(center, 'edfi.EducationServiceCenter');
+    add('educationservicecenter', { educationservicecenterid: center.id });
   }
 
   for (const day of fixture.calendarDates) {
@@ -461,8 +547,74 @@ export function toOdsRows(fixture, alloc) {
     add('studentcontactassociation', { contactusi: usi.contact.get(sca.contact), studentusi: usi.student.get(sca.student), ...audit(sca) });
   }
 
+  const assessments = byKey(fixture.assessments ?? []);
+  const administrations = byKey(fixture.assessmentAdministrations ?? []);
+  for (const a of fixture.assessments ?? []) {
+    const key = { namespace: a.namespace, assessmentidentifier: a.identifier };
+    add('assessment', {
+      ...key, assessmenttitle: a.title, assessmentversion: a.version ?? null, assessmentcategorydescriptorid: d(a.category),
+      educationorganizationid: a.definingOrg ?? null, assessmentfamily: a.family ?? null, assessmentform: a.form ?? null,
+      revisiondate: a.revisionDate ?? null, adaptiveassessment: a.adaptive ?? null, ...audit(a)
+    });
+    for (const subject of a.subjects ?? []) add('assessmentacademicsubject', { ...key, academicsubjectdescriptorid: d(subject) });
+    for (const grade of a.grades ?? []) add('assessmentassessedgradelevel', { ...key, gradeleveldescriptorid: d(grade) });
+  }
+  const administrationKey = key => {
+    const aa = administrations.get(key);
+    const a = assessments.get(aa.assessment);
+    return { namespace: a.namespace, assessmentidentifier: a.identifier, assigningeducationorganizationid: aa.assigning, administrationidentifier: aa.identifier };
+  };
+  for (const aa of fixture.assessmentAdministrations ?? []) {
+    const key = administrationKey(aa.key);
+    add('assessmentadministration', { ...key, ...audit(aa) });
+    for (const period of aa.periods) add('assessmentadministrationperiod', { ...key, begindate: period.begin, enddate: period.end });
+    for (const p of aa.participating) add('assessmentadministrationparticipation', { ...key, participatingeducationorganizationid: p.org, ...audit(p) });
+  }
+  for (const r of fixture.studentAssessmentRegistrations ?? []) {
+    const ssa = fixture.studentSchoolAssociations.find(candidate => candidate.student === r.student && candidate.school === r.school);
+    add('studentassessmentregistration', {
+      ...administrationKey(r.administration), educationorganizationid: r.org, studentusi: usi.student.get(r.student),
+      schoolid: r.school, entrydate: ssa.entryDate, assessmentgradeleveldescriptorid: d(r.grade), platformtypedescriptorid: d(r.platform),
+      testingeducationorganizationid: r.testingOrg ?? null, reportingeducationorganizationid: r.reportingOrg ?? null, ...audit(r)
+    });
+  }
+
   return rows;
 }
+
+/**
+ * The ed-org hierarchy rows the triggers would write for the fixture's organizations (the load runs with
+ * triggers off): each organization to itself, and each SEA and LEA to everything under it. The
+ * projections don't read them; the assessment authorization matrix does.
+ */
+export function hierarchyPairs(fixture = FIXTURE) {
+  const pairs = [];
+  const leasOf = sea => fixture.localEducationAgencies.filter(lea => lea.sea === sea).map(lea => lea.id);
+  const schoolsOf = lea => fixture.schools.filter(school => school.lea === lea).map(school => school.id);
+  for (const org of [...fixture.stateEducationAgencies, ...fixture.localEducationAgencies, ...fixture.schools, ...(fixture.educationServiceCenters ?? [])]) {
+    pairs.push([org.id, org.id]);
+  }
+  for (const sea of fixture.stateEducationAgencies) {
+    for (const lea of leasOf(sea.id)) {
+      pairs.push([sea.id, lea]);
+      for (const school of schoolsOf(lea)) pairs.push([sea.id, school]);
+    }
+  }
+  for (const lea of fixture.localEducationAgencies) {
+    for (const school of schoolsOf(lea.id)) pairs.push([lea.id, school]);
+  }
+  return pairs;
+}
+
+export const toOdsHierarchyRows = (fixture = FIXTURE) => hierarchyPairs(fixture).map(([source, target]) => ({
+  table: 'auth.educationorganizationidtoeducationorganizationid',
+  values: { sourceeducationorganizationid: source, targeteducationorganizationid: target }
+}));
+
+export const toDmsHierarchyRows = (fixture = FIXTURE) => hierarchyPairs(fixture).map(([source, target]) => ({
+  table: 'auth.EducationOrganizationIdToEducationOrganizationId',
+  values: { SourceEducationOrganizationId: source, TargetEducationOrganizationId: target }
+}));
 
 const STUDENT_IDENTIFICATION_CODES = '{{table:Ed-Fi/StudentEducationOrganizationAssociation/$.studentIdentificationCodes[*]}}';
 
@@ -509,6 +661,9 @@ export function toDmsRows(fixture, alloc) {
       LocalEducationAgency_DocumentId: school.lea == null ? null : edorg(school.lea), LocalEducationAgency_LocalEducationAgencyId: school.lea,
       ...modified(school)
     });
+  }
+  for (const center of fixture.educationServiceCenters ?? []) {
+    add('EducationServiceCenter', { DocumentId: edorg(center.id), EducationServiceCenterId: center.id, NameOfInstitution: center.name, ...modified(center) });
   }
 
   for (const day of fixture.calendarDates) {
@@ -579,13 +734,13 @@ export function toDmsRows(fixture, alloc) {
   }
   for (const ssa of fixture.studentSchoolAssociations) {
     add('StudentSchoolAssociation', {
-      DocumentId: alloc(), SchoolId_Unified: ssa.school, School_DocumentId: edorg(ssa.school), ...student(ssa.student),
+      DocumentId: doc(`ssa:${ssa.student}:${ssa.school}:${ssa.entryDate}`), SchoolId_Unified: ssa.school, School_DocumentId: edorg(ssa.school), ...student(ssa.student),
       EntryDate: ssa.entryDate, ExitWithdrawDate: ssa.exitDate ?? null, PrimarySchool: ssa.primary ?? null,
       EntryGradeLevelDescriptor_DescriptorId: d(ssa.grade), ...modified(ssa)
     });
   }
   for (const seoa of fixture.studentEducationOrganizationAssociations) {
-    const documentId = alloc();
+    const documentId = doc(`seoa:${seoa.student}:${seoa.org}`);
     add('StudentEducationOrganizationAssociation', {
       DocumentId: documentId, EducationOrganization_DocumentId: edorg(seoa.org), EducationOrganization_EducationOrganizationId: seoa.org,
       ...student(seoa.student), HispanicLatinoEthnicity: seoa.hispanic, ...modified(seoa)
@@ -682,6 +837,70 @@ export function toDmsRows(fixture, alloc) {
     });
   }
 
+  const assessments = byKey(fixture.assessments ?? []);
+  const administrations = byKey(fixture.assessmentAdministrations ?? []);
+  for (const a of fixture.assessments ?? []) {
+    const documentId = doc(`assessment:${a.key}`);
+    add('Assessment', {
+      DocumentId: documentId, Namespace: a.namespace, AssessmentIdentifier: a.identifier, AssessmentTitle: a.title,
+      AssessmentVersion: a.version ?? null, AssessmentCategoryDescriptor_DescriptorId: d(a.category),
+      EducationOrganization_DocumentId: a.definingOrg == null ? null : edorg(a.definingOrg), EducationOrganization_EducationOrganizationId: a.definingOrg ?? null,
+      AssessmentFamily: a.family ?? null, AssessmentForm: a.form ?? null, RevisionDate: a.revisionDate ?? null,
+      AdaptiveAssessment: a.adaptive ?? null, ...modified(a)
+    });
+    (a.subjects ?? []).forEach((subject, index) => {
+      add('AssessmentAcademicSubject', { Assessment_DocumentId: documentId, Ordinal: index, AcademicSubjectDescriptor_DescriptorId: d(subject) });
+    });
+    (a.grades ?? []).forEach((grade, index) => {
+      add('AssessmentAssessedGradeLevel', { Assessment_DocumentId: documentId, Ordinal: index, GradeLevelDescriptor_DescriptorId: d(grade) });
+    });
+  }
+  const administrationReference = key => {
+    const aa = administrations.get(key);
+    const a = assessments.get(aa.assessment);
+    return {
+      AssessmentAdministration_DocumentId: doc(`administration:${key}`), AssessmentAdministration_AdministrationIdentifier: aa.identifier,
+      AssessmentAdministration_AssessmentIdentifier: a.identifier, AssessmentAdministration_Namespace: a.namespace,
+      AssessmentAdministration_AssigningEducationOrganizationId: aa.assigning
+    };
+  };
+  for (const aa of fixture.assessmentAdministrations ?? []) {
+    const a = assessments.get(aa.assessment);
+    const documentId = doc(`administration:${aa.key}`);
+    add('AssessmentAdministration', {
+      DocumentId: documentId, Assessment_DocumentId: doc(`assessment:${a.key}`), Assessment_AssessmentIdentifier: a.identifier,
+      Assessment_Namespace: a.namespace, AssigningEducationOrganization_DocumentId: edorg(aa.assigning),
+      AssigningEducationOrganization_EducationOrganizationId: aa.assigning, AdministrationIdentifier: aa.identifier, ...modified(aa)
+    });
+    aa.periods.forEach((period, index) => {
+      add('AssessmentAdministrationPeriod', {
+        AssessmentAdministration_DocumentId: documentId, Ordinal: index,
+        AssessmentAdministrationBeginDate: period.begin, AssessmentAdministrationEndDate: period.end
+      });
+    });
+    for (const p of aa.participating) {
+      add('AssessmentAdministrationParticipation', {
+        DocumentId: alloc(), ...administrationReference(aa.key), ParticipatingEducationOrganization_DocumentId: edorg(p.org),
+        ParticipatingEducationOrganization_EducationOrganizationId: p.org, ...modified(p)
+      });
+    }
+  }
+  for (const r of fixture.studentAssessmentRegistrations ?? []) {
+    const ssa = fixture.studentSchoolAssociations.find(candidate => candidate.student === r.student && candidate.school === r.school);
+    add('StudentAssessmentRegistration', {
+      DocumentId: alloc(), StudentUniqueId_Unified: r.student, ...administrationReference(r.administration),
+      StudentEducationOrganizationAssociation_DocumentId: doc(`seoa:${r.student}:${r.org}`),
+      StudentEducationOrganizationAssociation_EducationOrganizationId: r.org,
+      StudentSchoolAssociation_DocumentId: doc(`ssa:${r.student}:${r.school}:${ssa.entryDate}`),
+      StudentSchoolAssociation_EntryDate: ssa.entryDate, StudentSchoolAssociation_SchoolId: r.school,
+      TestingEducationOrganization_DocumentId: r.testingOrg == null ? null : edorg(r.testingOrg),
+      TestingEducationOrganization_EducationOrganizationId: r.testingOrg ?? null,
+      ReportingEducationOrganization_DocumentId: r.reportingOrg == null ? null : edorg(r.reportingOrg),
+      ReportingEducationOrganization_EducationOrganizationId: r.reportingOrg ?? null,
+      AssessmentGradeLevelDescriptor_DescriptorId: d(r.grade), PlatformTypeDescriptor_DescriptorId: d(r.platform), ...modified(r)
+    });
+  }
+
   return rows;
 }
 
@@ -708,15 +927,50 @@ const staffEnrollmentId = (staff, code, school, year, section, session, begin) =
 const studentEnrollmentId = (student, code, school, year, section, session, begin) =>
   md5([student.toLowerCase(), code.toLowerCase(), school, year, section.toLowerCase(), session.toLowerCase(), begin].join('-'));
 
+// Assessment rostering sourcedIds: key parts lower-cased, '\\' and '|' escaped, joined with '|'
+const k = text => text.toLowerCase().replaceAll('\\', '\\\\').replaceAll('|', '\\|');
+export const assessmentId = (namespace, identifier) => md5(`${k(namespace)}|${k(identifier)}`);
+export const offeringId = (namespace, identifier, assigning, administration) =>
+  md5(`${k(namespace)}|${k(identifier)}|${assigning}|${k(administration)}`);
+export const assessmentEnrollmentId = (namespace, identifier, assigning, administration, org, student) =>
+  md5(`${k(namespace)}|${k(identifier)}|${assigning}|${k(administration)}|${org}|${k(student)}`);
+
+const MATH = assessmentId(FX_ASSESSMENT, 'FX-Math');
+const SCIENCE = assessmentId(FX_ASSESSMENT, 'FX-Science');
+const WRITING = assessmentId(FX_ASSESSMENT, 'FX-Writing');
+const COLLISION_A = assessmentId('uri://example.org/Assessment', 'TEST-PART1');
+const COLLISION_B = assessmentId('uri://example.org/Assessment-TEST', 'PART1');
+const ESCAPES = assessmentId(FX_ASSESSMENT, 'Esc\\Back|Pipe-Ñu');
+const ORDER = assessmentId(FX_ASSESSMENT, 'FX-Order');
+const VENDOR = assessmentId(FX_ASSESSMENT, 'FX-Vendor-Pilot');
+const O1 = offeringId(FX_ASSESSMENT, 'FX-Math', SEA, 'Spring Window|A');
+const O2 = offeringId(FX_ASSESSMENT, 'FX-Math', LEA, 'District Retest');
+const O3 = offeringId(FX_ASSESSMENT, 'FX-Science', SERVICE_CENTER, 'Vendor Sitting');
+const O4 = offeringId(FX_ASSESSMENT, 'FX-Math', LEA_B, 'B Sitting');
+const O5 = offeringId(FX_ASSESSMENT, 'FX-Vendor-Pilot', SERVICE_CENTER, 'Vendor Pilot');
+const R1 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', SEA, 'Spring Window|A', LEA, 'FX-STU-1');
+const R2 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', SEA, 'Spring Window|A', LEA_B, 'FX-STU-6');
+const R3 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', LEA, 'District Retest', LEA, 'FX-STU-1');
+const R4 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Science', SERVICE_CENTER, 'Vendor Sitting', LEA_B, 'FX-STU-6');
+const R5 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', SEA, 'Spring Window|A', LEA, 'FX-STU-7');
+const assessmentRef = id => ({ href: `/assessments/${id}`, sourcedId: id, type: 'assessment' });
+// assessmentauthorgs rows have a key for the parity tools, not a OneRoster id
+const authOrgId = (assessment, offering, org, orgRole) => md5(`${assessment}|${offering ?? ''}|${org}|${orgRole}`);
+const offeringRef = id => ({ href: `/assessmentOfferings/${id}`, sourcedId: id, type: 'assessmentOffering' });
+
 /** Rows each projection gains from the fixture. */
 export const EXPECTED_COUNTS = {
-  orgs: 6, // 1 SEA, 2 LEAs, 3 schools
+  orgs: 8, // 1 SEA, 3 LEAs, 4 schools (the service center isn't published)
   academicsessions: 8, // 3 school years (LEA 2025 and 2026, no-LEA 2026) and 5 mapped terms
   courses: 5,
   classes: 5,
-  users: 19, // 8 student rows (one per school), 7 staff rows, 4 contacts
+  users: 22, // 11 student rows (one per school), 7 staff rows, 4 contacts
   enrollments: 9,
-  demographics: 8
+  demographics: 11,
+  assessments: 8,
+  assessmentofferings: 5,
+  assessmentenrollments: 5,
+  assessmentauthorgs: 16 // 3 defining, 5 assigning, 4 participating, 4 registration schools
 };
 
 /**
@@ -724,7 +978,9 @@ export const EXPECTED_COUNTS = {
  * or { view, key, absent: true }. Columns in `unordered` hold arrays whose order the SQL leaves open.
  */
 export const EXPECTATIONS = [
-  { view: 'orgs', key: String(SEA), values: { type: 'state', parent: null, children: [orgRef(LEA)] } },
+  { view: 'orgs', key: String(SEA), values: { type: 'state', parent: null, children: [orgRef(LEA), orgRef(LEA_B)] }, unordered: ['children'] },
+  { view: 'orgs', key: String(SCHOOL_B1), values: { type: 'school', parent: orgRef(LEA_B) } },
+  { view: 'orgs', key: String(SERVICE_CENTER), absent: true },
   { view: 'orgs', key: String(LEA), values: { type: 'district', parent: orgRef(SEA), children: [orgRef(HIGH), orgRef(MIDDLE)] }, unordered: ['children'] },
   { view: 'orgs', key: String(CHARTER_LEA), values: { parent: null, children: null } },
   { view: 'orgs', key: String(HIGH), values: { type: 'school', name: 'Fixture High School', identifier: String(HIGH), parent: orgRef(LEA), children: null } },
@@ -841,5 +1097,184 @@ export const EXPECTATIONS = [
   },
   { view: 'demographics', key: `STU-FX-STU-3-${HIGH}`, values: { white: 'true', asian: 'false', demographicRaceTwoOrMoreRaces: 'false', hispanicOrLatinoEthnicity: 'false', dateLastModified: at('2026-02-04T08:00:00Z') } },
   { view: 'demographics', key: `STU-FX-STU-4-${MIDDLE}`, values: { white: 'false', demographicRaceTwoOrMoreRaces: 'false', hispanicOrLatinoEthnicity: 'true' } },
-  { view: 'demographics', key: 'STU-FX-STU-5', values: { educationOrganizationId: null, hispanicOrLatinoEthnicity: 'false', dateLastModified: at(LAST_MODIFIED) } }
+  { view: 'demographics', key: 'STU-FX-STU-5', values: { educationOrganizationId: null, hispanicOrLatinoEthnicity: 'false', dateLastModified: at(LAST_MODIFIED) } },
+
+  {
+    view: 'assessments', id: MATH,
+    values: {
+      title: 'Fixture Mathematics', identifier: 'FX-Math', version: '2', category: 'State assessment',
+      subjects: ['Mathematics', 'Reading'], grades: ['Ninth grade', 'Tenth grade'], org: null, course: null,
+      definingEducationOrganizationId: null, dateLastModified: at(LAST_MODIFIED),
+      metadata: {
+        edfi: {
+          resource: 'assessments', naturalKey: { namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Math' },
+          assessmentFamily: 'Fixture Family', assessmentForm: 'Form A', revisionDate: '2025-07-01', adaptiveAssessment: true
+        }
+      }
+    }
+  },
+  {
+    view: 'assessments', id: SCIENCE,
+    values: {
+      org: null, subjects: [], grades: [], category: null, version: null, definingEducationOrganizationId: String(SERVICE_CENTER),
+      metadata: { edfi: { resource: 'assessments', naturalKey: { namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Science' }, educationOrganizationId: SERVICE_CENTER } }
+    }
+  },
+  { view: 'assessments', id: WRITING, values: { org: orgRef(LEA_B), subjects: ['Writing'], definingEducationOrganizationId: String(LEA_B) } },
+  { view: 'assessments', id: COLLISION_A, values: { title: 'Collision A', identifier: 'TEST-PART1' } },
+  { view: 'assessments', id: COLLISION_B, values: { title: 'Collision B', identifier: 'PART1' } },
+  { view: 'assessments', id: ESCAPES, values: { title: '[Pilot]', identifier: 'Esc\\Back|Pipe-Ñu' } },
+  // code point order: upper case, then the hyphenated code, then lower case
+  { view: 'assessments', id: ORDER, values: { subjects: ['Ac', 'Re-test', 'ab'] } },
+  { view: 'assessments', id: VENDOR, values: { org: null, definingEducationOrganizationId: String(SERVICE_CENTER) } },
+
+  {
+    view: 'assessmentofferings', id: O1,
+    values: {
+      title: 'Spring Window|A', assessment: assessmentRef(MATH), org: orgRef(SEA), assessmentSourcedId: MATH,
+      testingWindows: [
+        { startDate: '2026-03-01', endDate: '2026-03-05' },
+        { startDate: '2026-04-01', endDate: '2026-04-02' },
+        { startDate: '2026-05-01', endDate: null }
+      ],
+      class: null, academicSession: null,
+      // the later participation change
+      dateLastModified: at('2026-02-06T10:00:00Z'),
+      metadata: {
+        edfi: {
+          resource: 'assessmentAdministrations',
+          naturalKey: { namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Math', assigningEducationOrganizationId: SEA, administrationIdentifier: 'Spring Window|A' },
+          participatingEducationOrganizations: [
+            { educationOrganizationId: LEA, org: orgRef(LEA) },
+            { educationOrganizationId: LEA_B, org: orgRef(LEA_B) }
+          ]
+        }
+      }
+    }
+  },
+  { view: 'assessmentofferings', id: O2, values: { org: orgRef(LEA), testingWindows: [], dateLastModified: at(LAST_MODIFIED) } },
+  { view: 'assessmentofferings', id: O5, values: { org: null, assessment: assessmentRef(VENDOR), testingWindows: [] } },
+  {
+    view: 'assessmentofferings', id: O3,
+    values: {
+      org: null, assessment: assessmentRef(SCIENCE), testingWindows: [{ startDate: '2026-02-10', endDate: '2026-02-10' }],
+      metadata: {
+        edfi: {
+          resource: 'assessmentAdministrations',
+          naturalKey: { namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Science', assigningEducationOrganizationId: SERVICE_CENTER, administrationIdentifier: 'Vendor Sitting' }
+        }
+      }
+    }
+  },
+  { view: 'assessmentofferings', id: O4, values: { org: orgRef(LEA_B), assessmentSourcedId: MATH } },
+
+  {
+    view: 'assessmentenrollments', id: R1,
+    values: {
+      user: userRef(`STU-FX-STU-1-${HIGH}`), school: orgRef(HIGH), assessmentOffering: offeringRef(O1), role: 'student',
+      beginDate: null, endDate: null, educationOrganizationId: String(HIGH), assessmentOfferingSourcedId: O1,
+      dateLastModified: at('2026-02-07T09:00:00Z'),
+      metadata: {
+        edfi: {
+          resource: 'studentAssessmentRegistrations',
+          naturalKey: {
+            namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Math', assigningEducationOrganizationId: SEA,
+            administrationIdentifier: 'Spring Window|A', educationOrganizationId: LEA, studentUniqueId: 'FX-STU-1'
+          },
+          assessmentGradeLevel: 'Tenth grade', platformType: 'Computer-based'
+        }
+      }
+    }
+  },
+  { view: 'assessmentenrollments', id: R2, values: { user: userRef(`STU-FX-STU-6-${SCHOOL_B1}`), school: orgRef(SCHOOL_B1), educationOrganizationId: String(SCHOOL_B1) } },
+  { view: 'assessmentenrollments', id: R3, values: { assessmentOffering: offeringRef(O2), assessmentOfferingSourcedId: O2 } },
+  {
+    view: 'assessmentenrollments', id: R4,
+    values: {
+      assessmentOffering: offeringRef(O3),
+      metadata: {
+        edfi: {
+          resource: 'studentAssessmentRegistrations',
+          naturalKey: {
+            namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Science', assigningEducationOrganizationId: SERVICE_CENTER,
+            administrationIdentifier: 'Vendor Sitting', educationOrganizationId: LEA_B, studentUniqueId: 'FX-STU-6'
+          },
+          testingEducationOrganization: { educationOrganizationId: LEA, org: orgRef(LEA) },
+          reportingEducationOrganization: { educationOrganizationId: SERVICE_CENTER }
+        }
+      }
+    }
+  },
+  { view: 'assessmentenrollments', id: R5, values: { user: userRef(`STU-FX-STU-7-${HIGH}`), school: orgRef(HIGH) } },
+
+  {
+    view: 'assessmentauthorgs', id: authOrgId(SCIENCE, null, SERVICE_CENTER, 'defining'),
+    values: { assessmentSourcedId: SCIENCE, assessmentOfferingSourcedId: null, educationOrganizationId: String(SERVICE_CENTER), orgRole: 'defining' }
+  },
+  { view: 'assessmentauthorgs', id: authOrgId(MATH, O1, SEA, 'assigning'), values: { assessmentOfferingSourcedId: O1, orgRole: 'assigning' } },
+  { view: 'assessmentauthorgs', id: authOrgId(VENDOR, O5, SERVICE_CENTER, 'assigning'), values: { assessmentSourcedId: VENDOR, orgRole: 'assigning' } },
+  { view: 'assessmentauthorgs', id: authOrgId(MATH, O4, LEA, 'participating'), values: { educationOrganizationId: String(LEA) } },
+  // one row per registration school, however many students
+  { view: 'assessmentauthorgs', id: authOrgId(MATH, O1, HIGH, 'registration'), values: { orgRole: 'registration' } },
+  { view: 'assessmentauthorgs', id: authOrgId(SCIENCE, O3, SCHOOL_B1, 'registration'), values: { assessmentSourcedId: SCIENCE } },
+  // testing and reporting organizations are not authorization organizations
+  { view: 'assessmentauthorgs', id: authOrgId(SCIENCE, O3, LEA, 'registration'), absent: true }
 ];
+
+/**
+ * What each caller sees of the fixture's assessment rostering rows: the authorization
+ * filters run against the fixture with toOdsHierarchyRows loaded. Assessments without a defining
+ * organization are visible to everyone; testing organizations never widen access.
+ */
+export const ASSESSMENT_VISIBILITY = {
+  [SEA]: {
+    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
+    assessmentofferings: [O1, O2, O3, O4],
+    assessmentenrollments: [R1, R2, R3, R4, R5]
+  },
+  [LEA]: {
+    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
+    assessmentofferings: [O1, O2, O4],
+    assessmentenrollments: [R1, R3, R5]
+  },
+  [LEA_B]: {
+    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
+    assessmentofferings: [O1, O3, O4],
+    assessmentenrollments: [R2, R4]
+  },
+  [HIGH]: {
+    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
+    assessmentofferings: [O1, O2, O4],
+    assessmentenrollments: [R1, R3, R5]
+  },
+  [MIDDLE]: {
+    assessments: [MATH, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
+    assessmentofferings: [O1, O4],
+    assessmentenrollments: []
+  },
+  [SCHOOL_B1]: {
+    assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
+    assessmentofferings: [O1, O3],
+    assessmentenrollments: [R2, R4]
+  }
+};
+
+// Every fixture row of the assessment views, including the ones no caller in ASSESSMENT_VISIBILITY sees
+export const ASSESSMENT_FIXTURE_IDS = {
+  assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER, VENDOR],
+  assessmentofferings: [O1, O2, O3, O4, O5],
+  assessmentenrollments: [R1, R2, R3, R4, R5]
+};
+
+// Callers that claim two organizations see what each sees alone: none of these pairs has a
+// registration at one organization's school for a student only the other is related to
+export const ASSESSMENT_CLAIM_PAIRS = [[HIGH, LEA_B], [MIDDLE, SCHOOL_B1]];
+
+// A caller who reaches every published organization skips the enrollment filter, but assessments and
+// offerings stay filtered: the service center's own assessment and sitting stay hidden
+export const ASSESSMENT_FULL_ACCESS_VISIBILITY = {
+  assessments: [MATH, SCIENCE, WRITING, COLLISION_A, COLLISION_B, ESCAPES, ORDER],
+  assessmentofferings: [O1, O2, O3, O4],
+  assessmentenrollments: [R1, R2, R3, R4, R5]
+};
+

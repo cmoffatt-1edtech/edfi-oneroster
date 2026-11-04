@@ -1,0 +1,25 @@
+meta {
+  name: Lea Reads Assessment Offering
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings/50f7682c5b6ac5078efa3fb97df56acb
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("wrapped as assessmentOffering", function() {
+    expect(res.getBody().assessmentOffering.sourcedId).to.equal('50f7682c5b6ac5078efa3fb97df56acb');
+  });
+}

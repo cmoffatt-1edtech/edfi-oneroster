@@ -1,0 +1,29 @@
+meta {
+  name: Filter Field Selection And Sort
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessments?filter=title~'ACT'&fields=sourcedId,identifier&sort=identifier&limit=100
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("ACT assessments, two fields, sorted by identifier", function() {
+    const items = res.getBody().assessments;
+    expect(items.length).to.be.greaterThan(1);
+    items.forEach(a => expect(Object.keys(a).sort()).to.deep.equal(['identifier', 'sourcedId']));
+    const ids = items.map(a => a.identifier);
+    expect(ids).to.deep.equal([...ids].sort());
+  });
+}

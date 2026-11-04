@@ -15,7 +15,7 @@ const counter = () => {
 const ods = toOdsRows(FIXTURE, counter());
 const dms = toDmsRows(FIXTURE, counter());
 const STUDENT_IDENTIFICATION_CODES = '{{table:Ed-Fi/StudentEducationOrganizationAssociation/$.studentIdentificationCodes[*]}}';
-const EDORG_TABLES = ['edfi.StateEducationAgency', 'edfi.LocalEducationAgency', 'edfi.School'];
+const EDORG_TABLES = ['edfi.StateEducationAgency', 'edfi.LocalEducationAgency', 'edfi.School', 'edfi.EducationServiceCenter'];
 
 const countByTable = rows => rows.reduce((counts, row) => ({ ...counts, [row.table]: (counts[row.table] || 0) + 1 }), {});
 const documentIds = table => new Set(dms.filter(row => row.table === table).map(row => row.values.DocumentId));
@@ -31,7 +31,8 @@ describe('dms-parity-fixture writers', () => {
       expect([table, odsCounts[odsTable]]).toEqual([table, count]);
     }
     // the ODS also writes the education organization base table
-    const edorgs = FIXTURE.stateEducationAgencies.length + FIXTURE.localEducationAgencies.length + FIXTURE.schools.length;
+    const edorgs = FIXTURE.stateEducationAgencies.length + FIXTURE.localEducationAgencies.length + FIXTURE.schools.length +
+      FIXTURE.educationServiceCenters.length;
     expect(odsCounts['edfi.educationorganization']).toBe(edorgs);
     expect(Object.keys(odsCounts)).toHaveLength(Object.keys(dmsCounts).length + 1);
   });
@@ -42,7 +43,11 @@ describe('dms-parity-fixture writers', () => {
       CourseOffering: ['edfi.CourseOffering'], Course: ['edfi.Course'], Session: ['edfi.Session'], School: ['edfi.School'],
       LocationSchool: ['edfi.School'], LocalEducationAgency: ['edfi.LocalEducationAgency'],
       StateEducationAgency: ['edfi.StateEducationAgency'], EducationOrganization: EDORG_TABLES,
-      StudentEducationOrganizationAssociation: ['edfi.StudentEducationOrganizationAssociation'], CalendarDate: ['edfi.CalendarDate']
+      StudentEducationOrganizationAssociation: ['edfi.StudentEducationOrganizationAssociation'], CalendarDate: ['edfi.CalendarDate'],
+      StudentSchoolAssociation: ['edfi.StudentSchoolAssociation'], Assessment: ['edfi.Assessment'],
+      AssessmentAdministration: ['edfi.AssessmentAdministration'], AssigningEducationOrganization: EDORG_TABLES,
+      ParticipatingEducationOrganization: EDORG_TABLES, TestingEducationOrganization: EDORG_TABLES,
+      ReportingEducationOrganization: EDORG_TABLES
     };
     // referenced documents the projections don't read: an id, no row, and no clash with a row
     const rowless = new Set(['SchoolYear', 'Calendar', 'ClassPeriod', 'LocationLocation']);

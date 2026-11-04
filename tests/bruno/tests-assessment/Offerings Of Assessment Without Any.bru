@@ -1,0 +1,25 @@
+meta {
+  name: Offerings Of Assessment Without Any
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessments/28c33fc14d202f9e3f35382ee64fd9ab/assessmentOfferings
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("0 assessmentOfferings", function() {
+    expect(res.getBody().assessmentOfferings).to.have.lengthOf(0);
+  });
+}

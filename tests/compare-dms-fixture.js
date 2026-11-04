@@ -27,9 +27,11 @@
  * Usage:
  *   ODS_PG="host=...;port=5432;username=...;password=...;database=EdFi_Ods" \
  *   DMS_PG="host=...;port=5432;username=...;password=...;database=edfi_datamanagementservice" \
- *   node tests/compare-dms-fixture.js [--json out.json] [--samples 5]
+ *   node tests/compare-dms-fixture.js [--json out.json] [--samples 5] [--platforms ods]
  * The logins must be allowed to set session_replication_role (superuser). tests/compare-dms-fixture.sh
- * runs it in a container on both local stacks' Docker networks.
+ * runs it in a container on both local stacks' Docker networks. --platforms ods (or dms) loads and
+ * checks one platform against EXPECTATIONS without the comparison, for projections only one platform
+ * has yet.
  */
 
 import fs from 'fs';
@@ -47,7 +49,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIRST_ID = 2_000_000_000;
 const TIMESTAMP_WITHOUT_TIME_ZONE = 1114;
 
-const PLATFORMS = [
+export const PLATFORMS = [
   {
     name: 'ods',
     label: 'ODS',
@@ -93,11 +95,17 @@ const PLATFORMS = [
 ];
 
 function parseArgs(argv) {
-  const args = { json: null, samples: 5 };
+  const args = { json: null, samples: 5, platforms: PLATFORMS.map(platform => platform.name) };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case '--json': args.json = argv[++i]; break;
       case '--samples': args.samples = Number(argv[++i]); break;
+      case '--platforms': {
+        args.platforms = argv[++i].split(',').map(name => name.trim()).filter(Boolean);
+        const unknown = args.platforms.filter(name => !PLATFORMS.some(platform => platform.name === name));
+        if (unknown.length || args.platforms.length === 0) throw new Error(`--platforms takes ods, dms or both`);
+        break;
+      }
       default: throw new Error(`Unknown argument: ${argv[i]}`);
     }
   }
@@ -172,12 +180,12 @@ export function changedSequences(before, after) {
   return [...names].filter(name => before.get(name) !== after.get(name)).sort();
 }
 
-async function readSequences(client) {
+export async function readSequences(client) {
   const { rows } = await client.query(`select schemaname || '.' || sequencename as name, last_value::text as value from pg_sequences`);
   return new Map(rows.map(row => [row.name, row.value]));
 }
 
-async function readDefinitions(client) {
+export async function readDefinitions(client) {
   const { rows } = await client.query(
     `select c.relname as view, pg_get_viewdef(c.oid, true) as sql
        from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -206,7 +214,7 @@ async function typeNames(client, fieldsByView) {
   ));
 }
 
-async function loadNameMap(client) {
+export async function loadNameMap(client) {
   const effective = await client.query('select "EffectiveSchemaHash" as hash from dms."EffectiveSchema"');
   if (effective.rows.length !== 1) throw new Error('dms."EffectiveSchema" has no single row');
   const { hash } = effective.rows[0];
@@ -219,7 +227,7 @@ async function loadNameMap(client) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-class Loader {
+export class Loader {
   constructor(client, nameMap) {
     this.client = client;
     this.nameMap = nameMap;
@@ -341,15 +349,16 @@ async function main() {
   // Both platforms project timestamps as timestamp without time zone in UTC: read them as UTC.
   pg.types.setTypeParser(TIMESTAMP_WITHOUT_TIME_ZONE, text => new Date(`${text.replace(' ', 'T')}Z`));
 
+  const platforms = PLATFORMS.filter(platform => args.platforms.includes(platform.name));
   const results = {};
-  for (const platform of PLATFORMS) {
+  for (const platform of platforms) {
     if (!process.env[platform.env]) throw new Error(`Set ${platform.env}`);
     results[platform.name] = await runPlatform(platform, process.env[platform.env]);
   }
 
   let failures = 0;
   const report = { platforms: {}, views: {}, expectations: {} };
-  for (const platform of PLATFORMS) {
+  for (const platform of platforms) {
     const result = results[platform.name];
     const removed = Object.values(result.removed).reduce((sum, n) => sum + n, 0);
     failures += removed + result.sequencesChanged.length + result.fixtureStudentsAfterRollback;
@@ -365,7 +374,9 @@ async function main() {
   }
 
   const ignored = new Set(PERSON_KEY_COLUMNS);
-  const views = [...new Set([...Object.keys(results.ods.added), ...Object.keys(results.dms.added)])].sort();
+  const compared = platforms.length === PLATFORMS.length;
+  const views = compared ? [...new Set([...Object.keys(results.ods.added), ...Object.keys(results.dms.added)])].sort() : [];
+  if (!compared) console.log(`\n${platforms[0].label} only: no ODS/DMS comparison`);
   for (const view of views) {
     const odsRows = results.ods.added[view] ?? [];
     const dmsRows = results.dms.added[view] ?? [];
@@ -400,7 +411,7 @@ async function main() {
   }
 
   console.log('');
-  for (const platform of PLATFORMS) {
+  for (const platform of platforms) {
     const { checked, failures: failed } = checkExpectations(results[platform.name].added);
     report.expectations[platform.name] = { checked, failures: failed };
     failures += failed.length;
@@ -409,7 +420,8 @@ async function main() {
   }
 
   if (args.json) fs.writeFileSync(args.json, `${JSON.stringify(report, null, 2)}\n`);
-  console.log(`\n${failures === 0 ? 'FIXTURE PARITY' : 'DIFFERENCES'}: ${failures} problem(s) across ${views.length} view(s)`);
+  const scope = compared ? `across ${views.length} view(s)` : `on ${platforms[0].label} only`;
+  console.log(`\n${failures === 0 ? 'FIXTURE PARITY' : 'DIFFERENCES'}: ${failures} problem(s) ${scope}`);
   process.exitCode = failures === 0 ? 0 : 1;
 }
 

@@ -1,0 +1,32 @@
+meta {
+  name: Get School Token
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{oauthUrl}}
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "grant_type": "client_credentials",
+    "client_id": "{{schoolClientId}}",
+    "client_secret": "{{schoolClientSecret}}",
+    "scope": "{{oauthScope}}"
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    bru.setEnvVar('ar-school-token', res.getBody().access_token);
+  }
+}
+
+tests {
+  test("token issued", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

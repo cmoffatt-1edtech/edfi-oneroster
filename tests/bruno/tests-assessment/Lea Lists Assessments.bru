@@ -1,0 +1,44 @@
+meta {
+  name: Lea Lists Assessments
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessments?limit=100
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("24 assessments", function() {
+    expect(res.getBody().assessments).to.have.lengthOf(24);
+  });
+
+  test("required fields, and subjects and grades are arrays", function() {
+    res.getBody().assessments.forEach(a => {
+      expect(a).to.include.keys('sourcedId', 'status', 'dateLastModified', 'title', 'identifier', 'subjects', 'grades');
+      expect(a.subjects).to.be.an('array');
+      expect(a.grades).to.be.an('array');
+    });
+  });
+
+  test("no hidden columns", function() {
+    res.getBody().assessments.forEach(a => {
+      expect(a).to.not.have.any.keys('definingEducationOrganizationId', 'educationOrganizationId');
+    });
+  });
+
+  test("sourcedIds are unique", function() {
+    const ids = res.getBody().assessments.map(a => a.sourcedId);
+    expect(new Set(ids).size).to.equal(ids.length);
+  });
+}

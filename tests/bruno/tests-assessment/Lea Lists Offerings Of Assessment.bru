@@ -1,0 +1,25 @@
+meta {
+  name: Lea Lists Offerings Of Assessment
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessments/942f89174d3829db3412893c78f6b4e0/assessmentOfferings
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("1 assessmentOfferings", function() {
+    expect(res.getBody().assessmentOfferings).to.have.lengthOf(1);
+  });
+}
