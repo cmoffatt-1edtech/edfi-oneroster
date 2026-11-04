@@ -165,3 +165,15 @@ describe.each([
     }
   });
 });
+
+// DMS runs the ODS master procedure unchanged, so upstream changes to it (such as #168) must reach
+// the DMS copy too
+describe.each(['5.2.0', '6.1.0'])('standard/%s/artifacts/dms-mssql/orchestration', version => {
+  test('master_refresh.sql is the ODS procedure apart from its DMS header line', () => {
+    const read = directory => fs.readFileSync(
+      path.join(STANDARD, version, 'artifacts', directory, 'orchestration', 'master_refresh.sql'), 'utf8'
+    );
+    const dms = read('dms-mssql').split('\n').filter(line => !line.startsWith('-- Ed-Fi API v8 (DMS): the same procedure as'));
+    expect(dms.join('\n')).toBe(read('mssql'));
+  });
+});
