@@ -97,6 +97,21 @@ async function fetchSourcedIds(db, table) {
     return new Set(rows.map(r => r.sourcedId ?? r.sourcedid));
 }
 
+/**
+ * The subset of ids that exist in a table, looked up directly so a large target table isn't
+ * sampled (a sample made every link past it look broken). Batches stay under SQL Server's
+ * 2,100-parameter limit.
+ */
+async function fetchExistingIds(db, table, ids) {
+    const unique = [...new Set(ids)];
+    const found = new Set();
+    for (let i = 0; i < unique.length; i += 1000) {
+        const rows = await db('oneroster12.' + table).select('sourcedId').whereIn('sourcedId', unique.slice(i, i + 1000));
+        for (const r of rows) found.add(r.sourcedId ?? r.sourcedid);
+    }
+    return found;
+}
+
 // ─── Individual link checkers ─────────────────────────────────────────────────
 
 /**
@@ -125,7 +140,16 @@ async function checkHrefColumn(db, sourceTable, jsonColumn, targetTable, isArray
         return { label, status: 'SKIP', detail: 'no rows with this column populated' };
     }
 
-    const targetIds = await fetchSourcedIds(db, targetTable);
+    const linkedIds = [];
+    for (const row of rows) {
+        const parsed = parseJson(row[jsonColumn] ?? row[jsonColumn.toLowerCase()]);
+        const links = !parsed ? [] : isArray ? (Array.isArray(parsed) ? parsed : [parsed]) : [parsed];
+        for (const link of links) {
+            const linkedId = link && typeof link === 'object' ? sourcedIdFromHref(link.href) : null;
+            if (linkedId) linkedIds.push(linkedId);
+        }
+    }
+    const targetIds = await fetchExistingIds(db, targetTable, linkedIds);
 
     let checked = 0;
     const broken = [];
@@ -200,7 +224,22 @@ const HREF_CHECKS = [
 
     // users — org links are nested inside roles[].org (not a top-level column)
     // Handled separately by checkUsersRolesOrgs() below.
+
+    // assessment rostering (Data Standard 5.2 and later; skipped where the views aren't deployed).
+    // An org link is null when the organization isn't one the orgs view publishes.
+    ['assessments',           'org',                'orgs',                false],
+    ['assessmentofferings',   'assessment',         'assessments',         false],
+    ['assessmentofferings',   'org',                'orgs',                false],
+    ['assessmentenrollments', 'user',               'users',               false],
+    ['assessmentenrollments', 'assessmentOffering', 'assessmentofferings', false],
+    ['assessmentenrollments', 'school',             'orgs',                false],
 ];
+
+// Sources that only some data stores have
+const OPTIONAL_SOURCES = new Set(['assessments', 'assessmentofferings', 'assessmentenrollments']);
+
+/** PostgreSQL undefined_table (42P01) or SQL Server invalid object name (208) */
+const isMissingTable = err => err?.code === '42P01' || err?.number === 208 || err?.originalError?.info?.number === 208;
 
 /**
  * Special check: users.roles[*].org → orgs
@@ -364,6 +403,11 @@ async function main() {
                 console.log(`SKIP  (${result.detail})`);
             }
         } catch (err) {
+            if (OPTIONAL_SOURCES.has(sourceTable) && isMissingTable(err)) {
+                skipped++;
+                console.log('SKIP  (not deployed on this data store)');
+                continue;
+            }
             failed++;
             console.log(`ERROR  ${err.message}`);
             results.push({ label: `${sourceTable}.${jsonColumn} → ${targetTable}`, status: 'ERROR', error: err.message });

@@ -1,0 +1,25 @@
+meta {
+  name: Other School Sees No Enrollments Of Offering
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings/50f7682c5b6ac5078efa3fb97df56acb/assessmentEnrollments
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-school-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("0 assessmentEnrollments", function() {
+    expect(res.getBody().assessmentEnrollments).to.have.lengthOf(0);
+  });
+}

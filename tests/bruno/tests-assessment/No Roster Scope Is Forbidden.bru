@@ -1,0 +1,25 @@
+meta {
+  name: No Roster Scope Is Forbidden
+  type: http
+  seq: 31
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-no-roster-token}}
+}
+
+tests {
+  test("status is 403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+
+  test("insufficient scope", function() {
+    expect(res.getBody().imsx_description).to.match(/^Insufficient scope/);
+  });
+}

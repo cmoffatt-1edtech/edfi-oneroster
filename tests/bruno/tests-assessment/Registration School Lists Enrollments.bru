@@ -1,0 +1,25 @@
+meta {
+  name: Registration School Lists Enrollments
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments?limit=100
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-registration-school-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("40 assessmentEnrollments", function() {
+    expect(res.getBody().assessmentEnrollments).to.have.lengthOf(40);
+  });
+}

@@ -1,0 +1,21 @@
+meta {
+  name: Hidden Field Cannot Be Filtered
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings?filter=assessmentSourcedId%3D'x'
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}

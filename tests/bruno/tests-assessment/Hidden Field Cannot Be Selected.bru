@@ -1,0 +1,21 @@
+meta {
+  name: Hidden Field Cannot Be Selected
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments?fields=participantUSI
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}

@@ -1,0 +1,25 @@
+meta {
+  name: Lea Lists Enrollments Of Offering
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings/50f7682c5b6ac5078efa3fb97df56acb/assessmentEnrollments?limit=100
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("40 assessmentEnrollments", function() {
+    expect(res.getBody().assessmentEnrollments).to.have.lengthOf(40);
+  });
+}

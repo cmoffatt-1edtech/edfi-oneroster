@@ -1,0 +1,30 @@
+meta {
+  name: Lea Reads Assessment Enrollment
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments/9d8dbd5010a90daca58f4e3e3bf31173
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("student 604827 at school 255901001", function() {
+    const e = res.getBody().assessmentEnrollment;
+    expect(e.sourcedId).to.equal('9d8dbd5010a90daca58f4e3e3bf31173');
+    expect(e.user).to.deep.equal({ href: '/users/078cacf2ccd09f725ae5c4817feff8f5', sourcedId: '078cacf2ccd09f725ae5c4817feff8f5', type: 'user' });
+    expect(e.school).to.deep.equal({ href: '/orgs/5643e68db2cfe9bf142de280d85599f9', sourcedId: '5643e68db2cfe9bf142de280d85599f9', type: 'org' });
+    expect(e.assessmentOffering).to.deep.equal({ href: '/assessmentOfferings/50f7682c5b6ac5078efa3fb97df56acb', sourcedId: '50f7682c5b6ac5078efa3fb97df56acb', type: 'assessmentOffering' });
+    expect(e.metadata.edfi.naturalKey.studentUniqueId).to.equal('604827');
+  });
+}

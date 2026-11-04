@@ -1,0 +1,35 @@
+meta {
+  name: Lea Lists Assessment Enrollments
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments?limit=100
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("40 assessmentEnrollments", function() {
+    expect(res.getBody().assessmentEnrollments).to.have.lengthOf(40);
+  });
+
+  test("students at school 255901001 on the ACT sitting", function() {
+    res.getBody().assessmentEnrollments.forEach(e => {
+      expect(e.role).to.equal('student');
+      expect(e.school.sourcedId).to.equal('5643e68db2cfe9bf142de280d85599f9');
+      expect(e.assessmentOffering.sourcedId).to.equal('50f7682c5b6ac5078efa3fb97df56acb');
+      expect(e.user.type).to.equal('user');
+      expect(e).to.not.have.any.keys('educationOrganizationId', 'participantUSI', 'participantDocumentId', 'assessmentOfferingSourcedId', 'beginDate', 'endDate');
+    });
+  });
+}
