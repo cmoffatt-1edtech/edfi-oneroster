@@ -361,8 +361,9 @@ service's own query and authorization services: collections, every fixture recor
 sub-collection, for each organization in `ASSESSMENT_VISIBILITY`, two pairs, and a caller claiming
 every published organization. Everything is rolled back. On PostgreSQL the views are recreated in a
 scratch schema, so the real ones aren't locked. On SQL Server the fixture is loaded by
-`tests/mssql-fixture-loader.js` and `oneroster12.sp_refresh_all` runs inside the transaction, so
-readers of `oneroster12` wait until it ends: run it against a copy of the ODS or data store.
+`tests/mssql-fixture-loader.js` and the `oneroster12.sp_refresh_<table>` procedures run inside the
+transaction (`sp_refresh_all` refuses an open transaction), so readers of `oneroster12` wait until
+it ends: run it against a copy of the ODS or data store.
 `--platforms ods` (or `dms`) runs one side. Expected: `9 callers, 341/341 checks met` on each.
 
 ## Development Scripts
