@@ -104,7 +104,10 @@ describe('buildRefreshTrackingSql', () => {
 
 // The artifact sets as committed: what deploy-dms.js will find and need
 describe.each([
-  ['5.2.0', 'dms-pgsql', ENGINES.postgres]
+  ['5.2.0', 'dms-pgsql', ENGINES.postgres],
+  ['5.2.0', 'dms-mssql', ENGINES.mssql],
+  ['6.1.0', 'dms-pgsql', ENGINES.postgres],
+  ['6.1.0', 'dms-mssql', ENGINES.mssql]
 ])('standard/%s/artifacts/%s', (version, directory, engine) => {
   const dir = path.join(STANDARD, version, 'artifacts', directory);
   const files = [...listArtifactFiles(dir), ...listOrchestrationFiles(dir)];
@@ -134,5 +137,17 @@ describe.each([
       const code = text.replace(/--[^\n]*/g, '');
       expect([path.basename(files[i]), [...code.matchAll(unquoted)].map(m => m[0])]).toEqual([path.basename(files[i]), []]);
     }
+  });
+});
+
+// DMS runs the ODS master procedure unchanged, so upstream changes to it (such as #168) must reach
+// the DMS copy too
+describe.each(['5.2.0', '6.1.0'])('standard/%s/artifacts/dms-mssql/orchestration', version => {
+  test('master_refresh.sql is the ODS procedure apart from its DMS header line', () => {
+    const read = directory => fs.readFileSync(
+      path.join(STANDARD, version, 'artifacts', directory, 'orchestration', 'master_refresh.sql'), 'utf8'
+    );
+    const dms = read('dms-mssql').split('\n').filter(line => !line.startsWith('-- Ed-Fi API v8 (DMS): the same procedure as'));
+    expect(dms.join('\n')).toBe(read('mssql'));
   });
 });

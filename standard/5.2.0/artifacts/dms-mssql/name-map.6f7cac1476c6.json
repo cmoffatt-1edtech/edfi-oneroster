@@ -1,0 +1,11 @@
+{
+  "effectiveSchemaHash": "6f7cac1476c6ede6140762df73f04c9b71f3af95f57b0ed03e0e6fa44a799d78",
+  "relationalMappingVersion": "v3",
+  "dialect": "mssql",
+  "tables": {
+    "Ed-Fi/StudentEducationOrganizationAssociation/$.studentIdentificationCodes[*]": {
+      "schema": "edfi",
+      "name": "StudentEducationOrganizationAssociationStudentIdentificationCode"
+    }
+  }
+}
