@@ -138,6 +138,10 @@ materialized_view_files=(
     "demographics.sql:demographics"
     "users.sql:users"
     "enrollments.sql:enrollments"
+    "assessments.sql:assessments"
+    "assessment_offerings.sql:assessmentofferings"
+    "assessment_enrollments.sql:assessmentenrollments"
+    "assessment_auth_orgs.sql:assessmentauthorgs"
     "users_ds4.sql:users"
     "enrollments_ds4.sql:enrollments"
 )
@@ -180,6 +184,23 @@ fi
 
 echo "✅ Connected successfully"
 echo ""
+
+# Assessment rostering reads the Assessment Registration domain, new in Data Standard 5.2. Data
+# Standard 5.0 and 5.1 deploy the 5.2.0 artifacts too, so its files are left out without the tables.
+has_assessment_registration=$(docker exec "$container_name" psql -U "$PGUSER" -d "$PGDATABASE" -tA -c \
+    "SELECT (to_regclass('edfi.assessmentadministration') IS NOT NULL)::int;" 2>/dev/null | xargs)
+if [[ "$has_assessment_registration" != "1" ]]; then
+    kept_files=()
+    for file_path in "${sql_files[@]}"; do
+        if [[ "$(basename "$file_path")" == assessment* ]]; then
+            echo "⚠️  Skipping $(basename "$file_path"): no Assessment Registration tables (Data Standard before 5.2)"
+        else
+            kept_files+=("$file_path")
+        fi
+    done
+    sql_files=("${kept_files[@]}")
+    echo ""
+fi
 
 
 successful=0

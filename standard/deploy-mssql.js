@@ -22,6 +22,7 @@ import { spawn } from 'child_process';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { buildMssqlTlsOptionsFromEnv } from '../src/config/mssql-tls.js';
+import { ASSESSMENT_REGISTRATION_QUERY, selectArtifactFiles } from './assessment-artifacts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -218,12 +219,26 @@ async function checkPrerequisites(pool) {
             console.log('⚠️  WARNING: No "edfi" schema found. Ensure this is an Ed-Fi ODS database.');
         }
 
+        const assessmentCheck = await pool.request().query(ASSESSMENT_REGISTRATION_QUERY.mssql);
+        const hasAssessmentRegistration = assessmentCheck.recordset[0].present === 1;
+
         console.log('');
+
+        return { majorVersion, hasAssessmentRegistration };
 
     } catch (err) {
         console.error('❌ Prerequisites check failed:', err.message);
         throw err;
     }
+}
+
+// Leaves out the assessment rostering files where the database can't take them (assessment-artifacts.js)
+function filesForServer(files, { majorVersion, hasAssessmentRegistration }) {
+    const selected = selectArtifactFiles(files, { hasAssessmentRegistration, sqlServerMajorVersion: majorVersion });
+    if (selected.reason) {
+        console.log(`⚠️  Skipping the assessment rostering files (${selected.skipped.map(file => path.basename(file)).join(', ')}): ${selected.reason}\n`);
+    }
+    return selected.files;
 }
 
 async function runDataRefresh() {
@@ -269,12 +284,12 @@ async function deploy() {
         console.log('✅ Connected successfully\\n');
 
         // Check prerequisites
-        await checkPrerequisites(pool);
+        const server = await checkPrerequisites(pool);
 
         let successCount = 0;
         let failCount = 0;
 
-        for (const filename of sqlFiles) {
+        for (const filename of filesForServer(sqlFiles, server)) {
             console.log('Executing file:', path.basename(filename));
             const success = await executeSQLFile(pool, filename);
             if (success) {

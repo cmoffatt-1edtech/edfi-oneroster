@@ -21,6 +21,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import { ASSESSMENT_REGISTRATION_QUERY, selectArtifactFiles } from './assessment-artifacts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -185,7 +186,11 @@ async function checkPrerequisites(pool) {
             console.log('⚠️  WARNING: No "edfi" schema found. Ensure this is an Ed-Fi ODS database.');
         }
 
+        const assessmentCheck = await pool.query(ASSESSMENT_REGISTRATION_QUERY.pgsql);
+
         console.log('');
+
+        return { hasAssessmentRegistration: assessmentCheck.rows[0].present === 1 };
     } catch (err) {
         console.error('❌ Prerequisites check failed:', err.message);
         throw err;
@@ -246,12 +251,16 @@ async function deploy() {
         await pool.query('SELECT 1');
         console.log('✅ Connected successfully\n');
 
-        await checkPrerequisites(pool);
+        const database = await checkPrerequisites(pool);
+        const selected = selectArtifactFiles(sqlFiles, database);
+        if (selected.reason) {
+            console.log(`⚠️  Skipping the assessment rostering files (${selected.skipped.map(file => path.basename(file)).join(', ')}): ${selected.reason}\n`);
+        }
 
         let successCount = 0;
         let failCount = 0;
 
-        for (const filename of sqlFiles) {
+        for (const filename of selected.files) {
             const success = await executeSQLFile(pool, filename);
             if (success) {
                 successCount++;
