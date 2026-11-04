@@ -345,7 +345,26 @@ Grand Bend leaves many branches of the views unexercised. This loads the synthet
 the fixture's rows across platforms, checks them against the expected values in the fixture, and
 rolls both databases back. It needs the same superuser settings as the database parity check,
 and it doesn't refresh or lock the materialized views. Expected: `FIXTURE PARITY: 0 problem(s)`
-and `56/56` expectations on each platform.
+across 11 views and `87/87` expectations on each platform (the seven rostering views and the four
+assessment rostering views).
+
+### Assessment authorization matrix
+
+```bash
+ODS_PG="..." DMS_PG="..." tests/assessment-auth-matrix.sh
+ODS_MSSQL="server=...;port=...;database=...;user id=...;password=..." \
+DMS_MSSQL="server=...;..." node tests/assessment-auth-matrix.js --engine mssql
+```
+
+Loads the same synthetic data and checks what each caller sees of the assessment views through the
+service's own query and authorization services: collections, every fixture record and every
+sub-collection, for each organization in `ASSESSMENT_VISIBILITY`, two pairs, and a caller claiming
+every published organization. Everything is rolled back. On PostgreSQL the views are recreated in a
+scratch schema, so the real ones aren't locked. On SQL Server the fixture is loaded by
+`tests/mssql-fixture-loader.js` and the `oneroster12.sp_refresh_<table>` procedures run inside the
+transaction (`sp_refresh_all` refuses an open transaction), so readers of `oneroster12` wait until
+it ends: run it against a copy of the ODS or data store.
+`--platforms ods` (or `dms`) runs one side. Expected: `9 callers, 341/341 checks met` on each.
 
 ## Development Scripts
 
