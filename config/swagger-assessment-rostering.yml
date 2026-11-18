@@ -461,8 +461,50 @@ components:
           type: string
           format: date-time
         metadata:
-          description: Ed-Fi values with no OneRoster field, under metadata.edfi
+          description: Ed-Fi values with no OneRoster field, under metadata.edfi. A value Ed-Fi doesn't have is
+            left out.
           type: object
+          properties:
+            edfi:
+              type: object
+              required:
+                - resource
+                - naturalKey
+              properties:
+                resource:
+                  description: The Ed-Fi API resource the record comes from.
+                  type: string
+                  enum:
+                    - assessments
+                naturalKey:
+                  description: The Ed-Fi natural key of the Assessment.
+                  type: object
+                  required:
+                    - namespace
+                    - assessmentIdentifier
+                  properties:
+                    namespace:
+                      description: uri://ed-fi.org/Assessment
+                      type: string
+                    assessmentIdentifier:
+                      description: ACT-ABW
+                      type: string
+                educationOrganizationId:
+                  description: The Ed-Fi id of the defining organization. 255901
+                  type: integer
+                assessmentFamily:
+                  description: Ed-Fi Assessment.assessmentFamily
+                  type: string
+                assessmentForm:
+                  description: Ed-Fi Assessment.assessmentForm
+                  type: string
+                revisionDate:
+                  description: 2021-07-01
+                  type: string
+                  format: date
+                adaptiveAssessment:
+                  description: Ed-Fi Assessment.adaptiveAssessment
+                  type: boolean
         title:
           description: Ed-Fi Assessment.assessmentTitle
           type: string
@@ -571,8 +613,89 @@ components:
           type: string
           format: date-time
         metadata:
-          description: Ed-Fi values with no OneRoster field, under metadata.edfi
+          description: Ed-Fi values with no OneRoster field, under metadata.edfi. A value Ed-Fi doesn't have is
+            left out.
           type: object
+          properties:
+            edfi:
+              type: object
+              required:
+                - resource
+                - naturalKey
+              properties:
+                resource:
+                  description: The Ed-Fi API resource the record comes from.
+                  type: string
+                  enum:
+                    - assessmentAdministrations
+                naturalKey:
+                  description: The Ed-Fi natural key of the AssessmentAdministration.
+                  type: object
+                  required:
+                    - namespace
+                    - assessmentIdentifier
+                    - assigningEducationOrganizationId
+                    - administrationIdentifier
+                  properties:
+                    namespace:
+                      description: uri://ed-fi.org/Assessment
+                      type: string
+                    assessmentIdentifier:
+                      description: ACT-ABW
+                      type: string
+                    assigningEducationOrganizationId:
+                      description: The Ed-Fi id of the assigning organization. 255901
+                      type: integer
+                    administrationIdentifier:
+                      description: Central Texas Assessment Institute (CTAI)
+                      type: string
+                participatingEducationOrganizations:
+                  description: The organizations listed as taking part, by Ed-Fi id.
+                  type: array
+                  items:
+                        type: object
+                        required:
+                          - educationOrganizationId
+                        properties:
+                          educationOrganizationId:
+                            description: The Ed-Fi id of the organization. 255901
+                            type: integer
+                          org:
+                            description: Link to the organization. Left out when it is not one OneRoster publishes.
+                            type: object
+                            required:
+                              - href
+                              - sourcedId
+                              - type
+                            properties:
+                              href:
+                                description: /../../rostering/v1p2/orgs/9877728989-ABF-0001
+                                type: string
+                              sourcedId:
+                                description: 9877728989-ABF-0001
+                                type: string
+                              type:
+                                description: org
+                                type: string
+                                enum:
+                                  - org
+                testingPeriods:
+                  description: Each Ed-Fi testing period of the administration, by begin date. startDate and
+                    endDate on the offering span them.
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - beginDate
+                    properties:
+                      beginDate:
+                        description: 2021-12-01
+                        type: string
+                        format: date
+                      endDate:
+                        description: Left out when the period is open-ended. 2021-12-01
+                        type: string
+                        format: date
         title:
           description: Ed-Fi AssessmentAdministration.administrationIdentifier
           type: string
@@ -695,8 +818,112 @@ components:
           type: string
           format: date-time
         metadata:
-          description: Ed-Fi values with no OneRoster field, under metadata.edfi
+          description: Ed-Fi values with no OneRoster field, under metadata.edfi. A value Ed-Fi doesn't have is
+            left out.
           type: object
+          properties:
+            edfi:
+              type: object
+              required:
+                - resource
+                - naturalKey
+              properties:
+                resource:
+                  description: The Ed-Fi API resource the record comes from.
+                  type: string
+                  enum:
+                    - studentAssessmentRegistrations
+                naturalKey:
+                  description: The Ed-Fi natural key of the StudentAssessmentRegistration.
+                  type: object
+                  required:
+                    - namespace
+                    - assessmentIdentifier
+                    - assigningEducationOrganizationId
+                    - administrationIdentifier
+                    - educationOrganizationId
+                    - studentUniqueId
+                  properties:
+                    namespace:
+                      description: uri://ed-fi.org/Assessment
+                      type: string
+                    assessmentIdentifier:
+                      description: ACT-ABW
+                      type: string
+                    assigningEducationOrganizationId:
+                      description: The Ed-Fi id of the assigning organization. 255901
+                      type: integer
+                    administrationIdentifier:
+                      description: Central Texas Assessment Institute (CTAI)
+                      type: string
+                    educationOrganizationId:
+                      description: The Ed-Fi id of the registration's education organization. 255901
+                      type: integer
+                    studentUniqueId:
+                      description: 604827
+                      type: string
+                assessmentGradeLevel:
+                  description: Code value of the grade level descriptor. Eleventh grade
+                  type: string
+                platformType:
+                  description: Code value of the platform type descriptor. Computer-based
+                  type: string
+                testingEducationOrganization:
+                  description: The organization that gives the test, when Ed-Fi has one.
+                  type: object
+                  required:
+                    - educationOrganizationId
+                  properties:
+                    educationOrganizationId:
+                      description: The Ed-Fi id of the organization. 255901
+                      type: integer
+                    org:
+                      description: Link to the organization. Left out when it is not one OneRoster publishes.
+                      type: object
+                      required:
+                        - href
+                        - sourcedId
+                        - type
+                      properties:
+                        href:
+                          description: /../../rostering/v1p2/orgs/9877728989-ABF-0001
+                          type: string
+                        sourcedId:
+                          description: 9877728989-ABF-0001
+                          type: string
+                        type:
+                          description: org
+                          type: string
+                          enum:
+                            - org
+                reportingEducationOrganization:
+                  description: The organization the results are reported for, when Ed-Fi has one.
+                  type: object
+                  required:
+                    - educationOrganizationId
+                  properties:
+                    educationOrganizationId:
+                      description: The Ed-Fi id of the organization. 255901
+                      type: integer
+                    org:
+                      description: Link to the organization. Left out when it is not one OneRoster publishes.
+                      type: object
+                      required:
+                        - href
+                        - sourcedId
+                        - type
+                      properties:
+                        href:
+                          description: /../../rostering/v1p2/orgs/9877728989-ABF-0001
+                          type: string
+                        sourcedId:
+                          description: 9877728989-ABF-0001
+                          type: string
+                        type:
+                          description: org
+                          type: string
+                          enum:
+                            - org
         user:
           description: The registered student, as in the users endpoint.
           type: object

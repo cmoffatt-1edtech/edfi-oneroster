@@ -491,6 +491,7 @@ puts an offering at one school, and this service still publishes one offering pe
 | href check | `tests/href-integrity.js` | An assessment link also has to resolve to its target's endpoint from the assessment base path. |
 | Bruno | `tests/bruno/tests-assessment/` | 36 requests, 66 tests: the new fields and links, filters on `registrationStatus`, `startDate` and `endDate`, and `testingWindows` no longer selectable. |
 | Unit tests | `assessment-rostering-routes.test.js`, `assessment-rostering-artifacts.test.js`, `swagger-document.test.js`, the discovery tests | The scope list, the selectable and filterable fields, the OpenAPI schemas against the controller's field lists, and each artifact set: one start and end date, the periods in metadata, the link form, and no school in any sourcedId. |
+| OpenAPI metadata | `config/swagger-assessment-rostering.yml`, `assessment-rostering-artifacts.test.js` | Added afterwards: the three schemas list what is under `metadata.edfi` (the Ed-Fi resource, the natural key, and the other Ed-Fi values each view writes), so the Swagger page shows it without a request. A unit test keeps the list equal to the paths the SQL Server views write and checks each name in the PostgreSQL views, in all eight sets. Unit tests: 1,221 pass. |
 
 ### Gates: ODS/API, Data Standard 5.2
 

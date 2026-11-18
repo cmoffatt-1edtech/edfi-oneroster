@@ -6,6 +6,7 @@
 import { describe, test, expect } from '@jest/globals';
 import fs from 'fs';
 import path from 'path';
+import YAML from 'yaml';
 import { ASSESSMENT_VIEWS } from '../../src/config/assessment-rostering.js';
 import { selectArtifactFiles } from '../../standard/assessment-artifacts.js';
 
@@ -15,6 +16,16 @@ const STANDARD = new URL('../../standard/', import.meta.url).pathname;
 const FILES = ['assessments.sql', 'assessment_offerings.sql', 'assessment_enrollments.sql', 'assessment_auth_orgs.sql'];
 
 const read = (version, set, file) => fs.readFileSync(path.join(STANDARD, version, 'artifacts', set, 'core', file), 'utf8');
+
+// What the OpenAPI fragment says is under metadata.edfi, by view file
+const SCHEMAS = YAML.parse(fs.readFileSync(new URL('../../config/swagger-assessment-rostering.yml', import.meta.url), 'utf8')).components.schemas;
+const DOCUMENTED_METADATA = Object.entries({
+  'assessments.sql': 'assessment', 'assessment_offerings.sql': 'assessmentOffering', 'assessment_enrollments.sql': 'assessmentEnrollment'
+}).map(([file, schema]) => {
+  const edfi = SCHEMAS[schema].properties.metadata.properties.edfi.properties;
+  const naturalKey = Object.keys(edfi.naturalKey.properties);
+  return [file, Object.keys(edfi).filter(name => name !== 'naturalKey'), naturalKey];
+});
 const exists = (version, set, file) => fs.existsSync(path.join(STANDARD, version, 'artifacts', set, 'core', file));
 
 describe.each([
@@ -88,6 +99,18 @@ describe.each([
 
     expect(offerings).toMatch(idColumn);
     expect(offerings).not.toMatch(/StudentAssessmentRegistration|studentassessmentregistration/);
+  });
+
+  test.each(DOCUMENTED_METADATA)('%s writes the metadata.edfi values the OpenAPI fragment lists', (file, values, naturalKey) => {
+    const text = read(version, set, file);
+    if (mssql) {
+      // FOR JSON PATH names every value by its path, so the two lists have to be the same
+      const paths = [...new Set([...text.matchAll(/\[edfi\.([A-Za-z.]+)\]/g)].map(match => match[1]))];
+      expect(paths.filter(name => !name.includes('.')).sort()).toEqual([...values].sort());
+      expect(paths.filter(name => name.startsWith('naturalKey.')).map(name => name.slice(11)).sort()).toEqual([...naturalKey].sort());
+    } else {
+      for (const name of [...values, 'naturalKey', ...naturalKey]) expect([name, text.includes(`'${name}',`)]).toEqual([name, true]);
+    }
   });
 
   if (mssql) {
