@@ -58,7 +58,7 @@ select
     'active' as "status",
     r.lastmodifieddate as "dateLastModified",
     json_build_object(
-        'href', concat('/users/', r.user_sourcedid),
+        'href', concat('/../../rostering/v1p2/users/', r.user_sourcedid),
         'sourcedId', r.user_sourcedid,
         'type', 'user'
     ) as "user",
@@ -68,11 +68,15 @@ select
         'type', 'assessmentOffering'
     ) as "assessmentOffering",
     json_build_object(
-        'href', concat('/orgs/', md5(r.schoolid::text)),
+        'href', concat('/../../rostering/v1p2/orgs/', md5(r.schoolid::text)),
         'sourcedId', md5(r.schoolid::text),
         'type', 'org'
     ) as "school",
+    -- An Ed-Fi registration isn't tied to a section
+    null::json as "class",
     'student' as "role",
+    -- Ed-Fi registrations have no status: one that exists is registered
+    'registered' as "registrationStatus",
     -- Ed-Fi registrations have no dates
     null::text as "beginDate",
     null::text as "endDate",
@@ -92,7 +96,7 @@ select
             'testingEducationOrganization', case when r.testingeducationorganizationid is not null then json_build_object(
                 'educationOrganizationId', r.testingeducationorganizationid,
                 'org', case when testing_org.educationorganizationid is not null then json_build_object(
-                    'href', concat('/orgs/', md5(r.testingeducationorganizationid::text)),
+                    'href', concat('/../../rostering/v1p2/orgs/', md5(r.testingeducationorganizationid::text)),
                     'sourcedId', md5(r.testingeducationorganizationid::text),
                     'type', 'org'
                 ) end
@@ -100,7 +104,7 @@ select
             'reportingEducationOrganization', case when r.reportingeducationorganizationid is not null then json_build_object(
                 'educationOrganizationId', r.reportingeducationorganizationid,
                 'org', case when reporting_org.educationorganizationid is not null then json_build_object(
-                    'href', concat('/orgs/', md5(r.reportingeducationorganizationid::text)),
+                    'href', concat('/../../rostering/v1p2/orgs/', md5(r.reportingeducationorganizationid::text)),
                     'sourcedId', md5(r.reportingeducationorganizationid::text),
                     'type', 'org'
                 ) end

@@ -336,8 +336,12 @@ export const FIXTURE = {
     // O3: assigned by the service center, no participation; reachable only through its registration school
     { key: 'O3', assessment: 'science', assigning: SERVICE_CENTER, identifier: 'Vendor Sitting', periods: [{ begin: '2026-02-10', end: '2026-02-10' }], participating: [] },
     // O4: assigned by district B with district A taking part; no registrations. District B's own
-    // school doesn't see it: going up, the assigning organization counts only without participants
-    { key: 'O4', assessment: 'math', assigning: LEA_B, identifier: 'B Sitting', periods: [{ begin: '2026-03-15', end: '2026-03-20' }], participating: [{ org: LEA }] },
+    // school doesn't see it: going up, the assigning organization counts only without participants.
+    // Two closed windows: the offering runs from the first start to the last end
+    {
+      key: 'O4', assessment: 'math', assigning: LEA_B, identifier: 'B Sitting',
+      periods: [{ begin: '2026-04-10', end: '2026-04-12' }, { begin: '2026-03-15', end: '2026-03-20' }], participating: [{ org: LEA }]
+    },
     // O5: the service center's own sitting, with no participation or registrations
     { key: 'O5', assessment: 'vendor', assigning: SERVICE_CENTER, identifier: 'Vendor Pilot', periods: [], participating: [] }
   ],
@@ -954,6 +958,11 @@ const R3 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', LEA, 'District Retes
 const R4 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Science', SERVICE_CENTER, 'Vendor Sitting', LEA_B, 'FX-STU-6');
 const R5 = assessmentEnrollmentId(FX_ASSESSMENT, 'FX-Math', SEA, 'Spring Window|A', LEA, 'FX-STU-7');
 const assessmentRef = id => ({ href: `/assessments/${id}`, sourcedId: id, type: 'assessment' });
+// A link from an assessment view to a rostering record: the rostering service has its own base path,
+// two levels up from the assessment one
+const ROSTERING = '/../../rostering/v1p2';
+const rosterOrgRef = id => ({ ...orgRef(id), href: `${ROSTERING}${orgRef(id).href}` });
+const rosterUserRef = key => ({ ...userRef(key), href: `${ROSTERING}${userRef(key).href}` });
 // assessmentauthorgs rows have a key for the parity tools, not a OneRoster id
 const authOrgId = (assessment, offering, org, orgRole) => md5(`${assessment}|${offering ?? ''}|${org}|${orgRole}`);
 const offeringRef = id => ({ href: `/assessmentOfferings/${id}`, sourcedId: id, type: 'assessmentOffering' });
@@ -1103,7 +1112,7 @@ export const EXPECTATIONS = [
     view: 'assessments', id: MATH,
     values: {
       title: 'Fixture Mathematics', identifier: 'FX-Math', version: '2', category: 'State assessment',
-      subjects: ['Mathematics', 'Reading'], grades: ['Ninth grade', 'Tenth grade'], org: null, course: null,
+      subjects: ['Mathematics', 'Reading'], grades: ['Ninth grade', 'Tenth grade'], org: null, course: null, schoolYear: null,
       definingEducationOrganizationId: null, dateLastModified: at(LAST_MODIFIED),
       metadata: {
         edfi: {
@@ -1120,7 +1129,7 @@ export const EXPECTATIONS = [
       metadata: { edfi: { resource: 'assessments', naturalKey: { namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Science' }, educationOrganizationId: SERVICE_CENTER } }
     }
   },
-  { view: 'assessments', id: WRITING, values: { org: orgRef(LEA_B), subjects: ['Writing'], definingEducationOrganizationId: String(LEA_B) } },
+  { view: 'assessments', id: WRITING, values: { org: rosterOrgRef(LEA_B), subjects: ['Writing'], definingEducationOrganizationId: String(LEA_B) } },
   { view: 'assessments', id: COLLISION_A, values: { title: 'Collision A', identifier: 'TEST-PART1' } },
   { view: 'assessments', id: COLLISION_B, values: { title: 'Collision B', identifier: 'PART1' } },
   { view: 'assessments', id: ESCAPES, values: { title: '[Pilot]', identifier: 'Esc\\Back|Pipe-Ñu' } },
@@ -1131,13 +1140,9 @@ export const EXPECTATIONS = [
   {
     view: 'assessmentofferings', id: O1,
     values: {
-      title: 'Spring Window|A', assessment: assessmentRef(MATH), org: orgRef(SEA), assessmentSourcedId: MATH,
-      testingWindows: [
-        { startDate: '2026-03-01', endDate: '2026-03-05' },
-        { startDate: '2026-04-01', endDate: '2026-04-02' },
-        { startDate: '2026-05-01', endDate: null }
-      ],
-      class: null, academicSession: null,
+      title: 'Spring Window|A', assessment: assessmentRef(MATH), org: rosterOrgRef(SEA), assessmentSourcedId: MATH,
+      // three windows, the last open-ended: the earliest start, and no end
+      startDate: '2026-03-01', endDate: null, class: null, terms: [],
       // the later participation change
       dateLastModified: at('2026-02-06T10:00:00Z'),
       metadata: {
@@ -1145,34 +1150,42 @@ export const EXPECTATIONS = [
           resource: 'assessmentAdministrations',
           naturalKey: { namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Math', assigningEducationOrganizationId: SEA, administrationIdentifier: 'Spring Window|A' },
           participatingEducationOrganizations: [
-            { educationOrganizationId: LEA, org: orgRef(LEA) },
-            { educationOrganizationId: LEA_B, org: orgRef(LEA_B) }
+            { educationOrganizationId: LEA, org: rosterOrgRef(LEA) },
+            { educationOrganizationId: LEA_B, org: rosterOrgRef(LEA_B) }
+          ],
+          // by start date; the open-ended one has no end date
+          testingPeriods: [
+            { beginDate: '2026-03-01', endDate: '2026-03-05' },
+            { beginDate: '2026-04-01', endDate: '2026-04-02' },
+            { beginDate: '2026-05-01' }
           ]
         }
       }
     }
   },
-  { view: 'assessmentofferings', id: O2, values: { org: orgRef(LEA), testingWindows: [], dateLastModified: at(LAST_MODIFIED) } },
-  { view: 'assessmentofferings', id: O5, values: { org: null, assessment: assessmentRef(VENDOR), testingWindows: [] } },
+  { view: 'assessmentofferings', id: O2, values: { org: rosterOrgRef(LEA), startDate: null, endDate: null, terms: [], dateLastModified: at(LAST_MODIFIED) } },
+  { view: 'assessmentofferings', id: O5, values: { org: null, assessment: assessmentRef(VENDOR), startDate: null, endDate: null } },
   {
     view: 'assessmentofferings', id: O3,
     values: {
-      org: null, assessment: assessmentRef(SCIENCE), testingWindows: [{ startDate: '2026-02-10', endDate: '2026-02-10' }],
+      org: null, assessment: assessmentRef(SCIENCE), startDate: '2026-02-10', endDate: '2026-02-10',
       metadata: {
         edfi: {
           resource: 'assessmentAdministrations',
-          naturalKey: { namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Science', assigningEducationOrganizationId: SERVICE_CENTER, administrationIdentifier: 'Vendor Sitting' }
+          naturalKey: { namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Science', assigningEducationOrganizationId: SERVICE_CENTER, administrationIdentifier: 'Vendor Sitting' },
+          testingPeriods: [{ beginDate: '2026-02-10', endDate: '2026-02-10' }]
         }
       }
     }
   },
-  { view: 'assessmentofferings', id: O4, values: { org: orgRef(LEA_B), assessmentSourcedId: MATH } },
+  // two closed windows: the first start and the last end
+  { view: 'assessmentofferings', id: O4, values: { org: rosterOrgRef(LEA_B), assessmentSourcedId: MATH, startDate: '2026-03-15', endDate: '2026-04-12' } },
 
   {
     view: 'assessmentenrollments', id: R1,
     values: {
-      user: userRef(`STU-FX-STU-1-${HIGH}`), school: orgRef(HIGH), assessmentOffering: offeringRef(O1), role: 'student',
-      beginDate: null, endDate: null, educationOrganizationId: String(HIGH), assessmentOfferingSourcedId: O1,
+      user: rosterUserRef(`STU-FX-STU-1-${HIGH}`), school: rosterOrgRef(HIGH), assessmentOffering: offeringRef(O1), class: null, role: 'student',
+      registrationStatus: 'registered', beginDate: null, endDate: null, educationOrganizationId: String(HIGH), assessmentOfferingSourcedId: O1,
       dateLastModified: at('2026-02-07T09:00:00Z'),
       metadata: {
         edfi: {
@@ -1186,8 +1199,8 @@ export const EXPECTATIONS = [
       }
     }
   },
-  { view: 'assessmentenrollments', id: R2, values: { user: userRef(`STU-FX-STU-6-${SCHOOL_B1}`), school: orgRef(SCHOOL_B1), educationOrganizationId: String(SCHOOL_B1) } },
-  { view: 'assessmentenrollments', id: R3, values: { assessmentOffering: offeringRef(O2), assessmentOfferingSourcedId: O2 } },
+  { view: 'assessmentenrollments', id: R2, values: { user: rosterUserRef(`STU-FX-STU-6-${SCHOOL_B1}`), school: rosterOrgRef(SCHOOL_B1), educationOrganizationId: String(SCHOOL_B1) } },
+  { view: 'assessmentenrollments', id: R3, values: { assessmentOffering: offeringRef(O2), assessmentOfferingSourcedId: O2, registrationStatus: 'registered' } },
   {
     view: 'assessmentenrollments', id: R4,
     values: {
@@ -1199,13 +1212,13 @@ export const EXPECTATIONS = [
             namespace: FX_ASSESSMENT, assessmentIdentifier: 'FX-Science', assigningEducationOrganizationId: SERVICE_CENTER,
             administrationIdentifier: 'Vendor Sitting', educationOrganizationId: LEA_B, studentUniqueId: 'FX-STU-6'
           },
-          testingEducationOrganization: { educationOrganizationId: LEA, org: orgRef(LEA) },
+          testingEducationOrganization: { educationOrganizationId: LEA, org: rosterOrgRef(LEA) },
           reportingEducationOrganization: { educationOrganizationId: SERVICE_CENTER }
         }
       }
     }
   },
-  { view: 'assessmentenrollments', id: R5, values: { user: userRef(`STU-FX-STU-7-${HIGH}`), school: orgRef(HIGH) } },
+  { view: 'assessmentenrollments', id: R5, values: { user: rosterUserRef(`STU-FX-STU-7-${HIGH}`), school: rosterOrgRef(HIGH) } },
 
   {
     view: 'assessmentauthorgs', id: authOrgId(SCIENCE, null, SERVICE_CENTER, 'defining'),

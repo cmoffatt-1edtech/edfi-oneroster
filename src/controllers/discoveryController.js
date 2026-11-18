@@ -16,7 +16,7 @@ import { getRouteContextConfig } from '../config/route-context-config.js';
 import { getDmsTokenUrl } from '../config/dms-config.js';
 import { isAssessmentRosteringEnabled, ASSESSMENT_ROSTERING_BASE_PATH } from '../config/assessment-rostering.js';
 
-// The assessment rostering service URL, after the rostering one, when that service is enabled
+// The assessment registration service URL, after the rostering one, when that service is enabled
 const ASSESSMENT_ROSTERING_PATH = `/ims/oneroster${ASSESSMENT_ROSTERING_BASE_PATH}/`;
 
 /**
@@ -45,7 +45,7 @@ function getDmsDiscovery(req) {
   urls.oauth = getDmsTokenUrl();
   urls.dataManagementApi = `${prefix}/ims/oneroster/rostering/v1p2/`;
   if (isAssessmentRosteringEnabled()) {
-    urls.assessmentRosteringApi = `${prefix}${ASSESSMENT_ROSTERING_PATH}`;
+    urls.assessmentRegistrationApi = `${prefix}${ASSESSMENT_ROSTERING_PATH}`;
   }
 
   return { version: '1.0.0', urls };
@@ -91,7 +91,7 @@ export function getDiscovery(req, res) {
 
   if (isAssessmentRosteringEnabled()) {
     const assessmentTemplate = buildUrlTemplate(baseUrl, multiTenancyEnabled, contextConfig, ASSESSMENT_ROSTERING_PATH);
-    urls.assessmentRosteringApi = populateUrlTemplate(assessmentTemplate, tenantId, contextValue, contextConfig);
+    urls.assessmentRegistrationApi = populateUrlTemplate(assessmentTemplate, tenantId, contextValue, contextConfig);
   }
 
   const response = {

@@ -3,20 +3,21 @@
 # 1EdTech Consortium, Inc. licenses this file to you under the Apache License, Version 2.0.
 # See the LICENSE and NOTICES files in the project root for more information.
 
-# Assessment rostering (provisional): merged into config/swagger.yml by
+# Assessment registration (provisional): merged into config/swagger.yml by
 # src/config/swagger-document.js when ASSESSMENT_ROSTERING_ENABLED is true.
 
 tags:
-  - name: Assessment Rostering
+  - name: Assessment Registration
     x-tag-meaning: set
     description: Provisional. Students registered for assessment sittings, from Ed-Fi assessment
-      registration data (Data Standard 5.2 and later). The 1EdTech service name and version are not
-      final, so the base path may change. Served only when ASSESSMENT_ROSTERING_ENABLED is true.
+      registration data (Data Standard 5.2 and later). The 1EdTech specification is a draft, so the
+      base path, the scopes and the fields may change. Served only when ASSESSMENT_ROSTERING_ENABLED
+      is true.
 paths:
-  /ims/oneroster/assessmentRostering/v1p0/assessments:
+  /ims/oneroster/assessment-registration/v1p0/assessments:
     get:
       tags:
-        - Assessment Rostering
+        - Assessment Registration
       summary: getAssessments
       description: Return collection of assessments.
       security:
@@ -74,11 +75,11 @@ paths:
                     items:
                       $ref: "#/components/schemas/assessment"
         "404":
-          description: Assessment rostering is not available for this data store.
-  /ims/oneroster/assessmentRostering/v1p0/assessments/{id}:
+          description: Assessment registration is not available for this data store.
+  /ims/oneroster/assessment-registration/v1p0/assessments/{id}:
     get:
       tags:
-        - Assessment Rostering
+        - Assessment Registration
       summary: getAssessment
       description: Return specific assessment.
       security:
@@ -90,7 +91,7 @@ paths:
         - name: id
           in: path
           required: true
-          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessments]
+          description: An identifier from [ims/oneroster/assessment-registration/v1p0/assessments]
           x-source: getAssessments
           schema:
             type: string
@@ -105,12 +106,12 @@ paths:
                   assessment:
                     $ref: "#/components/schemas/assessment"
         "404":
-          description: Not found, not visible to the caller, or assessment rostering is not available for this
+          description: Not found, not visible to the caller, or assessment registration is not available for this
             data store.
-  /ims/oneroster/assessmentRostering/v1p0/assessments/{id}/assessmentOfferings:
+  /ims/oneroster/assessment-registration/v1p0/assessments/{id}/assessmentOfferings:
     get:
       tags:
-        - Assessment Rostering
+        - Assessment Registration
       summary: getAssessmentOfferingsForAssessment
       description: Return collection of the offerings of an assessment.
       security:
@@ -122,7 +123,7 @@ paths:
         - name: id
           in: path
           required: true
-          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessments]
+          description: An identifier from [ims/oneroster/assessment-registration/v1p0/assessments]
           x-source: getAssessments
           schema:
             type: string
@@ -177,10 +178,10 @@ paths:
         "404":
           description: Assessment rostering is not available for this data store, or the parent resource was
             not found.
-  /ims/oneroster/assessmentRostering/v1p0/assessmentOfferings:
+  /ims/oneroster/assessment-registration/v1p0/assessmentOfferings:
     get:
       tags:
-        - Assessment Rostering
+        - Assessment Registration
       summary: getAssessmentOfferings
       description: Return collection of assessment offerings.
       security:
@@ -238,11 +239,11 @@ paths:
                     items:
                       $ref: "#/components/schemas/assessmentOffering"
         "404":
-          description: Assessment rostering is not available for this data store.
-  /ims/oneroster/assessmentRostering/v1p0/assessmentOfferings/{id}:
+          description: Assessment registration is not available for this data store.
+  /ims/oneroster/assessment-registration/v1p0/assessmentOfferings/{id}:
     get:
       tags:
-        - Assessment Rostering
+        - Assessment Registration
       summary: getAssessmentOffering
       description: Return specific assessment offering.
       security:
@@ -254,7 +255,7 @@ paths:
         - name: id
           in: path
           required: true
-          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessmentOfferings]
+          description: An identifier from [ims/oneroster/assessment-registration/v1p0/assessmentOfferings]
           x-source: getAssessmentOfferings
           schema:
             type: string
@@ -269,12 +270,12 @@ paths:
                   assessmentOffering:
                     $ref: "#/components/schemas/assessmentOffering"
         "404":
-          description: Not found, not visible to the caller, or assessment rostering is not available for this
+          description: Not found, not visible to the caller, or assessment registration is not available for this
             data store.
-  /ims/oneroster/assessmentRostering/v1p0/assessmentOfferings/{id}/assessmentEnrollments:
+  /ims/oneroster/assessment-registration/v1p0/assessmentOfferings/{id}/assessmentEnrollments:
     get:
       tags:
-        - Assessment Rostering
+        - Assessment Registration
       summary: getAssessmentEnrollmentsForOffering
       description: Return collection of the enrollments on an assessment offering.
       security:
@@ -286,7 +287,7 @@ paths:
         - name: id
           in: path
           required: true
-          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessmentOfferings]
+          description: An identifier from [ims/oneroster/assessment-registration/v1p0/assessmentOfferings]
           x-source: getAssessmentOfferings
           schema:
             type: string
@@ -341,10 +342,10 @@ paths:
         "404":
           description: Assessment rostering is not available for this data store, or the parent resource was
             not found.
-  /ims/oneroster/assessmentRostering/v1p0/assessmentEnrollments:
+  /ims/oneroster/assessment-registration/v1p0/assessmentEnrollments:
     get:
       tags:
-        - Assessment Rostering
+        - Assessment Registration
       summary: getAssessmentEnrollments
       description: Return collection of assessment enrollments.
       security:
@@ -402,11 +403,11 @@ paths:
                     items:
                       $ref: "#/components/schemas/assessmentEnrollment"
         "404":
-          description: Assessment rostering is not available for this data store.
-  /ims/oneroster/assessmentRostering/v1p0/assessmentEnrollments/{id}:
+          description: Assessment registration is not available for this data store.
+  /ims/oneroster/assessment-registration/v1p0/assessmentEnrollments/{id}:
     get:
       tags:
-        - Assessment Rostering
+        - Assessment Registration
       summary: getAssessmentEnrollment
       description: Return specific assessment enrollment.
       security:
@@ -418,7 +419,7 @@ paths:
         - name: id
           in: path
           required: true
-          description: An identifier from [ims/oneroster/assessmentRostering/v1p0/assessmentEnrollments]
+          description: An identifier from [ims/oneroster/assessment-registration/v1p0/assessmentEnrollments]
           x-source: getAssessmentEnrollments
           schema:
             type: string
@@ -433,7 +434,7 @@ paths:
                   assessmentEnrollment:
                     $ref: "#/components/schemas/assessmentEnrollment"
         "404":
-          description: Not found, not visible to the caller, or assessment rostering is not available for this
+          description: Not found, not visible to the caller, or assessment registration is not available for this
             data store.
 components:
   schemas:
@@ -496,7 +497,7 @@ components:
             - type
           properties:
             href:
-              description: /orgs/9877728989-ABF-0001
+              description: /../../rostering/v1p2/orgs/9877728989-ABF-0001
               type: string
             sourcedId:
               description: 9877728989-ABF-0001
@@ -516,7 +517,7 @@ components:
             - type
           properties:
             href:
-              description: /courses/9877728989-ABF-0001
+              description: /../../rostering/v1p2/courses/9877728989-ABF-0001
               type: string
             sourcedId:
               description: 9877728989-ABF-0001
@@ -526,6 +527,26 @@ components:
               type: string
               enum:
                 - course
+        schoolYear:
+          description: School year. Ed-Fi has no source, so absent in this version.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /../../rostering/v1p2/academicSessions/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: academicSession
+              type: string
+              enum:
+                - academicSession
     assessmentOffering:
       type: object
       required:
@@ -534,7 +555,7 @@ components:
         - dateLastModified
         - title
         - assessment
-        - testingWindows
+        - terms
       properties:
         sourcedId:
           description: 9877728989-ABF-0001
@@ -586,7 +607,7 @@ components:
             - type
           properties:
             href:
-              description: /orgs/9877728989-ABF-0001
+              description: /../../rostering/v1p2/orgs/9877728989-ABF-0001
               type: string
             sourcedId:
               description: 9877728989-ABF-0001
@@ -596,24 +617,17 @@ components:
               type: string
               enum:
                 - org
-        testingWindows:
-          description: One entry per Ed-Fi administration period, ordered by start date; never merged. Empty
-            when there are none.
-          type: array
-          items:
-            type: object
-            required:
-              - startDate
-            properties:
-              startDate:
-                description: 2021-12-01
-                type: string
-                format: date
-              endDate:
-                description: Null when the window is open-ended. 2021-12-01
-                type: string
-                format: date
-                nullable: true
+        startDate:
+          description: Start of the testing window, the earliest begin date of the Ed-Fi administration's
+            periods. Absent when it has none. Each period is listed in metadata.edfi.testingPeriods.
+            2021-12-01
+          type: string
+          format: date
+        endDate:
+          description: End of the testing window, the latest end date of the periods. Absent when there are
+            none, or when any period is open-ended. 2021-12-01
+          type: string
+          format: date
         class:
           description: Linked class. Not filled in this version, because Ed-Fi has no source for it.
           type: object
@@ -624,7 +638,7 @@ components:
             - type
           properties:
             href:
-              description: /classes/9877728989-ABF-0001
+              description: /../../rostering/v1p2/classes/9877728989-ABF-0001
               type: string
             sourcedId:
               description: 9877728989-ABF-0001
@@ -634,26 +648,27 @@ components:
               type: string
               enum:
                 - class
-        academicSession:
-          description: Academic session. Not filled in this version, because Ed-Fi has no source for it.
-          type: object
-          nullable: true
-          required:
-            - href
-            - sourcedId
-            - type
-          properties:
-            href:
-              description: /academicSessions/9877728989-ABF-0001
-              type: string
-            sourcedId:
-              description: 9877728989-ABF-0001
-              type: string
-            type:
-              description: academicSession
-              type: string
-              enum:
-                - academicSession
+        terms:
+          description: Linked terms. Always empty in this version, because Ed-Fi has no source for them.
+          type: array
+          items:
+            type: object
+            required:
+              - href
+              - sourcedId
+              - type
+            properties:
+              href:
+                description: /../../rostering/v1p2/academicSessions/9877728989-ABF-0001
+                type: string
+              sourcedId:
+                description: 9877728989-ABF-0001
+                type: string
+              type:
+                description: academicSession
+                type: string
+                enum:
+                  - academicSession
     assessmentEnrollment:
       type: object
       required:
@@ -664,6 +679,7 @@ components:
         - assessmentOffering
         - school
         - role
+        - registrationStatus
       properties:
         sourcedId:
           description: 9877728989-ABF-0001
@@ -691,7 +707,7 @@ components:
             - type
           properties:
             href:
-              description: /users/9877728989-ABF-0001
+              description: /../../rostering/v1p2/users/9877728989-ABF-0001
               type: string
             sourcedId:
               description: 9877728989-ABF-0001
@@ -731,7 +747,7 @@ components:
             - type
           properties:
             href:
-              description: /orgs/9877728989-ABF-0001
+              description: /../../rostering/v1p2/orgs/9877728989-ABF-0001
               type: string
             sourcedId:
               description: 9877728989-ABF-0001
@@ -741,11 +757,38 @@ components:
               type: string
               enum:
                 - org
+        class:
+          description: Linked class. Not filled in this version, because an Ed-Fi registration isn't tied to
+            a section.
+          type: object
+          nullable: true
+          required:
+            - href
+            - sourcedId
+            - type
+          properties:
+            href:
+              description: /../../rostering/v1p2/classes/9877728989-ABF-0001
+              type: string
+            sourcedId:
+              description: 9877728989-ABF-0001
+              type: string
+            type:
+              description: class
+              type: string
+              enum:
+                - class
         role:
           description: Ed-Fi registers students only, so always student.
           type: string
           enum:
             - student
+        registrationStatus:
+          description: Ed-Fi registrations have no status, so always registered. A registration deleted in
+            Ed-Fi drops out of the collection.
+          type: string
+          enum:
+            - registered
         beginDate:
           description: Ed-Fi registrations have no dates, so absent.
           type: string

@@ -59,7 +59,7 @@ const COLLECTIONS = {
   orgs: 'orgs', schools: 'orgs', users: 'users', students: 'users', teachers: 'users'
 };
 // Assessment rostering (--assessment-rostering): name -> [path from the service root, wrapper]
-const ASSESSMENT_BASE = '/ims/oneroster/assessmentRostering/v1p0';
+const ASSESSMENT_BASE = '/ims/oneroster/assessment-registration/v1p0';
 const ASSESSMENT_COLLECTIONS = {
   assessments: [`${ASSESSMENT_BASE}/assessments`, 'assessments'],
   assessmentOfferings: [`${ASSESSMENT_BASE}/assessmentOfferings`, 'assessmentOfferings'],

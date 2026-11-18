@@ -26,7 +26,9 @@ CREATE TABLE oneroster12.assessmentenrollments (
     [user] NVARCHAR(MAX) NOT NULL, -- JSON GUIDRef
     assessmentOffering NVARCHAR(MAX) NOT NULL, -- JSON GUIDRef
     school NVARCHAR(MAX) NOT NULL, -- JSON GUIDRef
+    class NVARCHAR(MAX) NULL, -- always null: an Ed-Fi registration isn't tied to a section
     role NVARCHAR(16) NOT NULL,
+    registrationStatus NVARCHAR(16) NOT NULL, -- always registered: Ed-Fi registrations have no status
     beginDate NVARCHAR(10) NULL, -- always null: Ed-Fi registrations have no dates
     endDate NVARCHAR(10) NULL,
     metadata NVARCHAR(MAX) NULL, -- JSON
@@ -77,7 +79,9 @@ BEGIN
             [user] NVARCHAR(MAX) NOT NULL,
             assessmentOffering NVARCHAR(MAX) NOT NULL,
             school NVARCHAR(MAX) NOT NULL,
+            class NVARCHAR(MAX) NULL,
             role NVARCHAR(16) NOT NULL,
+            registrationStatus NVARCHAR(16) NOT NULL,
             beginDate NVARCHAR(10) NULL,
             endDate NVARCHAR(10) NULL,
             metadata NVARCHAR(MAX) NULL,
@@ -130,13 +134,15 @@ BEGIN
             r.enrollment_sourcedid AS sourcedId,
             'active' AS status,
             r.LastModifiedDate AS dateLastModified,
-            (SELECT CONCAT('/users/', r.user_sourcedid) AS href, r.user_sourcedid AS sourcedId, 'user' AS type
+            (SELECT CONCAT('/../../rostering/v1p2/users/', r.user_sourcedid) AS href, r.user_sourcedid AS sourcedId, 'user' AS type
              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS [user],
             (SELECT CONCAT('/assessmentOfferings/', r.offering_sourcedid) AS href, r.offering_sourcedid AS sourcedId, 'assessmentOffering' AS type
              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS assessmentOffering,
-            (SELECT CONCAT('/orgs/', r.school_sourcedid) AS href, r.school_sourcedid AS sourcedId, 'org' AS type
+            (SELECT CONCAT('/../../rostering/v1p2/orgs/', r.school_sourcedid) AS href, r.school_sourcedid AS sourcedId, 'org' AS type
              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS school,
+            NULL AS class,
             'student' AS role,
+            'registered' AS registrationStatus,
             NULL AS beginDate,
             NULL AS endDate,
             (SELECT
@@ -154,7 +160,7 @@ BEGIN
                         r.TestingEducationOrganizationId AS educationOrganizationId,
                         JSON_QUERY(CASE WHEN testing_org.EducationOrganizationId IS NOT NULL THEN
                             (SELECT
-                                CONCAT('/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.TestingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
+                                CONCAT('/../../rostering/v1p2/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.TestingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
                                 LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.TestingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2)) AS sourcedId,
                                 'org' AS type
                              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
@@ -166,7 +172,7 @@ BEGIN
                         r.ReportingEducationOrganizationId AS educationOrganizationId,
                         JSON_QUERY(CASE WHEN reporting_org.EducationOrganizationId IS NOT NULL THEN
                             (SELECT
-                                CONCAT('/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.ReportingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
+                                CONCAT('/../../rostering/v1p2/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.ReportingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
                                 LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.ReportingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2)) AS sourcedId,
                                 'org' AS type
                              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
@@ -189,10 +195,10 @@ BEGIN
             TRUNCATE TABLE oneroster12.assessmentenrollments;
 
             INSERT INTO oneroster12.assessmentenrollments
-                (sourcedId, status, dateLastModified, [user], assessmentOffering, school, role, beginDate, endDate,
+                (sourcedId, status, dateLastModified, [user], assessmentOffering, school, class, role, registrationStatus, beginDate, endDate,
                  metadata, educationOrganizationId, participantUSI, assessmentOfferingSourcedId)
             SELECT
-                sourcedId, status, dateLastModified, [user], assessmentOffering, school, role, beginDate, endDate,
+                sourcedId, status, dateLastModified, [user], assessmentOffering, school, class, role, registrationStatus, beginDate, endDate,
                 metadata, educationOrganizationId, participantUSI, assessmentOfferingSourcedId
             FROM #staging_assessmentenrollments;
         COMMIT TRANSACTION;

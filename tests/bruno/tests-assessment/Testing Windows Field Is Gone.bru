@@ -1,0 +1,21 @@
+meta {
+  name: Testing Windows Field Is Gone
+  type: http
+  seq: 36
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings?fields=sourcedId,testingWindows
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}

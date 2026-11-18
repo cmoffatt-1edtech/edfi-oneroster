@@ -1,0 +1,25 @@
+meta {
+  name: Offerings After The Window
+  type: http
+  seq: 35
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings?filter=startDate%3E'2021-12-01'
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("no offering starts after 2021-12-01", function() {
+    expect(res.getBody().assessmentOfferings).to.deep.equal([]);
+  });
+}

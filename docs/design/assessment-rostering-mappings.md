@@ -1,20 +1,25 @@
-# Assessment rostering: how the Ed-Fi data maps
+# Assessment registration: how the Ed-Fi data maps
 
-A first draft of a OneRoster assessment rostering service over Ed-Fi assessment registration data
-(Data Standard 5.2 and later). The 1EdTech service has no published name or version yet, so the
-base path and the resource shapes are provisional. This page is what an engineer needs to work on the code.
+A draft of a OneRoster assessment registration service over Ed-Fi assessment registration data
+(Data Standard 5.2 and later). The 1EdTech specification for the service is itself a draft, so the
+base path, the scopes and the resource shapes are provisional. This page is what an engineer needs
+to work on the code. The code and the flag still say "assessment rostering", the service's working
+name when the first draft was built.
 
 ## Switching it on
 
 - `ASSESSMENT_ROSTERING_ENABLED=true` mounts the routes, adds the service to `/swagger.json`
-  (`config/swagger-assessment-rostering.yml`) and to discovery (`urls.assessmentRosteringApi`), and
+  (`config/swagger-assessment-rostering.yml`) and to discovery (`urls.assessmentRegistrationApi`), and
   adds the views to the PostgreSQL refresh jobs. Off by default; off, the service is unchanged, and
   startup removes any refresh schedules for the views that an earlier run left in pg-boss.
-- Base path: `/ims/oneroster/assessmentRostering/v1p0/`, one constant in
+- Base path: `/ims/oneroster/assessment-registration/v1p0/`, one constant in
   `src/config/assessment-rostering.js`.
-- Scopes: `roster.readonly` or `roster-core.readonly`, as for core rostering.
+- Scopes: a token needs one of the scopes in `ASSESSMENT_ACCEPTED_SCOPES`, in the same file. For now
+  those are `roster.readonly` and `roster-core.readonly`. The service is to have scopes of its own,
+  which aren't named yet. When they are, change that list, the `security` entries in the OpenAPI
+  fragment and, on DMS, the claim-set scope map (`ONEROSTER_CLAIMSET_SCOPES`).
 - A data store without the views (Data Standard 4.0, or not deployed) answers 404 "Assessment
-  rostering is not available for this data store." on these endpoints only. The database error has to
+  registration is not available for this data store." on these endpoints only. The database error has to
   name a `oneroster12` assessment view; any other missing object, such as an `auth` table, stays a 500.
 
 ## Resources
@@ -27,6 +32,24 @@ base path and the resource shapes are provisional. This page is what an engineer
 
 A sub-collection answers 404 when its parent doesn't exist or isn't visible to the caller.
 
+## How this differs from the draft model
+
+The field names follow the draft model for the service: `startDate`, `endDate` and `terms` on an
+offering, `schoolYear` on an assessment, `registrationStatus` and `class` on an enrollment. The
+draft model's names are still under review, so these may be renamed. Each one is in the views, the
+resource configs in `oneRosterController.js` and the OpenAPI fragment. Two things don't follow the
+draft model yet:
+
+- **One offering per administration.** The draft model puts an offering at one school. Ed-Fi records
+  an administration for an assigning organization and has no per-school record of it, so this
+  service publishes one offering per administration, and its organization is in `org`, not
+  `school`. An offering per school would be derived from the registrations; it changes offering ids
+  and the authorization rules, and isn't built.
+- **Scopes.** The rostering scopes are accepted until the service's own are named (above).
+
+Enrollments are served from this service's own endpoint, not from the rostering enrollments
+endpoint, where every record has a class.
+
 ## Source tables
 
 | Purpose | ODS/API (PostgreSQL lower case; SQL Server PascalCase) | DMS (DS 5.2) |
@@ -35,7 +58,7 @@ A sub-collection answers 404 when its parent doesn't exist or isn't visible to t
 | Subjects | `edfi.assessmentacademicsubject` | `edfi."AssessmentAcademicSubject"` (collection of Assessment) |
 | Grades | `edfi.assessmentassessedgradelevel` | `edfi."AssessmentAssessedGradeLevel"` (collection) |
 | Administration | `edfi.assessmentadministration` | `edfi."AssessmentAdministration"` |
-| Testing windows | `edfi.assessmentadministrationperiod` | `edfi."AssessmentAdministrationPeriod"` (collection) |
+| Testing periods | `edfi.assessmentadministrationperiod` | `edfi."AssessmentAdministrationPeriod"` (collection) |
 | Participating orgs | `edfi.assessmentadministrationparticipation` | `edfi."AssessmentAdministrationParticipation"` (own document) |
 | Registration | `edfi.studentassessmentregistration` | `edfi."StudentAssessmentRegistration"` |
 | Descriptors | `edfi.descriptor` | `dms."Descriptor"` |
@@ -67,10 +90,15 @@ Each data store gets three views plus a helper, in every artifact set that has a
 
 Rules every artifact set follows:
 - No view reads another, so the drop-and-recreate deploy and the refresh order don't matter.
-- `subjects`, `grades` and `testingWindows` are always arrays, `[]` when empty, in a fixed order
-  (code value by code point, `COLLATE "C"` / `Latin1_General_100_BIN2`, so locale and engine don't
-  change it; start date, then end date with nulls last). A testing window is `{startDate, endDate}`,
-  with `endDate` null when open-ended. Windows are never merged.
+- `subjects` and `grades` are always arrays, `[]` when empty, in a fixed order (code value by code
+  point, `COLLATE "C"` / `Latin1_General_100_BIN2`, so locale and engine don't change it).
+- An offering has one testing window. `startDate` is the earliest begin date of the administration's
+  periods and `endDate` the latest end date. `endDate` is null when any period is open-ended, and
+  both are null when there are no periods. A single range covers the gaps between periods, so each
+  period is also listed in `metadata.edfi.testingPeriods` as `{beginDate, endDate}`, by begin date
+  and then end date (open-ended last); an open-ended period has no `endDate` there, and the key is
+  left out when there are no periods. Both dates can be filtered on.
+- `terms` on an offering is always `[]`: Ed-Fi has no link from an administration to a session.
 - An org reference (`assessment.org`, `assessmentOffering.org`, the participating, testing and
   reporting orgs in metadata) is a GUIDRef only when the organization is a school, district or state,
   the ones the orgs endpoint publishes. Otherwise the reference is left out and the Ed-Fi id stays in
@@ -79,11 +107,19 @@ Rules every artifact set follows:
   field (null values left out).
 - `dateLastModified` of an offering is the later of the administration and its participation rows;
   periods restamp the administration on both platforms.
-- `role` is always `student`. Ed-Fi registrations have no dates, so `beginDate` and `endDate` are
-  absent. `class` and `academicSession` on offerings and `course` on assessments are absent: Ed-Fi has
-  no source (open questions Q4 and Q5).
-- `href`s use the existing relative form: `/assessments/<id>`, `/assessmentOfferings/<id>`, and for
-  rostering resources `/users/<id>`, `/orgs/<id>`, which resolve against the rostering base path.
+- `role` is always `student` and `registrationStatus` always `registered`: an Ed-Fi registration has
+  no status, and one that exists is registered. A registration deleted in Ed-Fi drops out of the
+  collection; nothing is published as withdrawn or `tobedeleted`.
+- Ed-Fi registrations have no dates, so `beginDate` and `endDate` on an enrollment are absent.
+  `class` on offerings and enrollments, and `course` and `schoolYear` on assessments, are absent:
+  Ed-Fi has no source. (Ed-Fi links sections to an assessment, not to an administration.)
+- An `href` is relative to the service's base path, as on the rostering endpoints: append it to the
+  base path to get the record's URL. Inside the service that gives `/assessments/<id>` and
+  `/assessmentOfferings/<id>`. A user or an org is served by the rostering service, two path levels
+  up and across, so those links are `/../../rostering/v1p2/users/<id>` and
+  `/../../rostering/v1p2/orgs/<id>`: appended to `/ims/oneroster/assessment-registration/v1p0`, they
+  resolve to `/ims/oneroster/rostering/v1p2/...`, with or without a tenant or context prefix.
+  `sourcedId` and `type` are there for consumers that don't follow links.
 
 ## sourcedIds
 
@@ -178,7 +214,10 @@ the assigning organization.
   and sitting; and it checks that every enrollment's offering and every offering's assessment is
   visible to the same caller. The fixture pins the code-point order of local subject codes.
 - `tests/href-integrity.js` checks the assessment links (user, offering, assessment, school, org) at
-  the database level.
+  the database level: the target exists, and the link resolves to the target's endpoint from the
+  assessment base path.
+- On SQL Server the matrix run also checks the fixture's expected values for the three tables, since
+  the fixture parity run is PostgreSQL only.
 - Not covered yet: keys that differ only in case (a documented limitation); an automated run of
   `deploy-mssql.js` and the README's manual deploy (checked by hand in phase 6).
 
@@ -189,7 +228,7 @@ from `11-oneroster` in May 2026):
 
 - `configuration/environment-variables.md`: `ASSESSMENT_ROSTERING_ENABLED`.
 - `configuration/oauth-and-jwt.md`: the assessment endpoints take `roster.readonly` or
-  `roster-core.readonly`.
+  `roster-core.readonly` for now, and will get scopes of their own.
 - `data-model/endpoint-source-mapping.md`: the three resources and their Ed-Fi sources.
 - `data-model/organization-mapping.md`: org references left out for organizations the orgs endpoint
   doesn't publish, with the Ed-Fi id in metadata.
@@ -200,5 +239,6 @@ from `11-oneroster` in May 2026):
 ## Out of scope in this draft
 
 Teacher and proctor enrollments (no core Ed-Fi source), battery parts, accommodations and
-customizations, the participating organization's point of contact, and class or academic session
-links. Each is a later addition that doesn't change any published id.
+customizations, the participating organization's point of contact, class, term and school year
+links, write operations, CSV files, and deleted-record reporting. Each is a later addition that
+doesn't change any published id. An offering per school (above) would change offering ids.

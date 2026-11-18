@@ -4,11 +4,11 @@
 // See the LICENSE and NOTICES files in the project root for more information.
 
 /**
- * OneRoster assessment rostering (first draft)
+ * OneRoster assessment registration (draft)
  *
  * Three read-only resources over Ed-Fi assessment registration data (Data Standard 5.2 and
- * later): assessments, assessmentOfferings and assessmentEnrollments. The 1EdTech service has no
- * published name or version yet, so the base path is provisional and lives here only.
+ * later): assessments, assessmentOfferings and assessmentEnrollments. The 1EdTech specification
+ * is still a draft, so the base path and the accepted scopes are provisional and live here only.
  *
  * Off by default. ASSESSMENT_ROSTERING_ENABLED=true mounts the routes and adds the service to the
  * OpenAPI document, the discovery document and the view refresh jobs. envValidator rejects any
@@ -16,7 +16,15 @@
  */
 
 // Under /ims/oneroster, beside /rostering/v1p2
-export const ASSESSMENT_ROSTERING_BASE_PATH = '/assessmentRostering/v1p0';
+export const ASSESSMENT_ROSTERING_BASE_PATH = '/assessment-registration/v1p0';
+
+// The scopes these endpoints accept: a token needs any one of them. The service is to get scopes
+// of its own; until they are named, the rostering scopes are accepted. This list is the only
+// place to change.
+export const ASSESSMENT_ACCEPTED_SCOPES = Object.freeze([
+  'https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly',
+  'https://purl.imsglobal.org/spec/or/v1p2/scope/roster-core.readonly'
+]);
 
 // Endpoint names, which are also the oneroster12 view names
 export const ASSESSMENT_ENDPOINTS = Object.freeze({

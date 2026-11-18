@@ -123,7 +123,7 @@ describe('discoveryController', () => {
       const res = createRes();
       getDiscovery({ params: {} }, res);
 
-      expect(res.json.mock.calls[0][0].urls).not.toHaveProperty('assessmentRosteringApi');
+      expect(res.json.mock.calls[0][0].urls).not.toHaveProperty('assessmentRegistrationApi');
     });
 
     test('is advertised after dataManagementApi when ASSESSMENT_ROSTERING_ENABLED=true', () => {
@@ -132,8 +132,8 @@ describe('discoveryController', () => {
       getDiscovery({ params: {} }, res);
 
       const { urls } = res.json.mock.calls[0][0];
-      expect(urls.assessmentRosteringApi).toBe('https://oneroster.example.org/ims/oneroster/assessmentRostering/v1p0/');
-      expect(Object.keys(urls)).toEqual(['openApiMetadata', 'swaggerUI', 'oauth', 'dataManagementApi', 'assessmentRosteringApi']);
+      expect(urls.assessmentRegistrationApi).toBe('https://oneroster.example.org/ims/oneroster/assessment-registration/v1p0/');
+      expect(Object.keys(urls)).toEqual(['openApiMetadata', 'swaggerUI', 'oauth', 'dataManagementApi', 'assessmentRegistrationApi']);
     });
   });
 

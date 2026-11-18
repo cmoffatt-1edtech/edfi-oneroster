@@ -9,6 +9,7 @@
  */
 
 import { getClaimsProfile } from '../platform/claims-profile.js';
+import { ASSESSMENT_ENDPOINT_NAMES, ASSESSMENT_ACCEPTED_SCOPES } from '../config/assessment-rostering.js';
 
 const ROSTER_SCOPES = {
     FULL: 'https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly',
@@ -31,6 +32,19 @@ function getTokenScopes(req) {
  */
 function validateScope(req, endpoint) {
     const tokenScopes = getTokenScopes(req);
+
+    // The assessment registration endpoints keep their own list of accepted scopes
+    if (ASSESSMENT_ENDPOINT_NAMES.has(endpoint)) {
+        if (ASSESSMENT_ACCEPTED_SCOPES.some(scope => tokenScopes.has(scope))) {
+            return null;
+        }
+        return {
+            imsx_codeMajor: 'failure',
+            imsx_severity: 'error',
+            imsx_description: `Insufficient scope: your token must have the '${ASSESSMENT_ACCEPTED_SCOPES.join("' or '")}' scope to access this route.`
+        };
+    }
+
     const isDemographics = endpoint === 'demographics';
 
     // Per [OneRoster v1.2 Rostering Service Spec, Section 4.3.3](https://www.imsglobal.org/sites/default/files/spec/oneroster/v1p2/rostering-restbinding/OneRosterv1p2RosteringService_RESTBindv1p0.html#Main4p3)

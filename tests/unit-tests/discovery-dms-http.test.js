@@ -83,8 +83,8 @@ describe('discovery on Ed-Fi API v8 (DMS), over HTTP', () => {
     process.env.ROUTE_QUALIFIER_SEGMENTS = 'districtId';
     const { body } = await get('/255901');
 
-    expect(body.urls.assessmentRosteringApi).toBe(`${BASE}/255901/ims/oneroster/assessmentRostering/v1p0/`);
-    expect(Object.keys(body.urls).at(-1)).toBe('assessmentRosteringApi');
+    expect(body.urls.assessmentRegistrationApi).toBe(`${BASE}/255901/ims/oneroster/assessment-registration/v1p0/`);
+    expect(Object.keys(body.urls).at(-1)).toBe('assessmentRegistrationApi');
   });
 
   describe('with route qualifiers districtId,schoolYear', () => {

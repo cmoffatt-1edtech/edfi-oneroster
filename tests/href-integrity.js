@@ -112,6 +112,25 @@ async function fetchExistingIds(db, table, ids) {
     return found;
 }
 
+/**
+ * The assessment views are served from their own base path, so a link from one of them to a
+ * rostering record is written from there. Appended to the assessment base path, an href has to
+ * resolve to the endpoint that serves the target.
+ */
+const ASSESSMENT_BASE = '/ims/oneroster/assessment-registration/v1p0';
+const ROSTERING_BASE = '/ims/oneroster/rostering/v1p2';
+const ENDPOINT_PATHS = {
+    orgs: `${ROSTERING_BASE}/orgs`,
+    users: `${ROSTERING_BASE}/users`,
+    assessments: `${ASSESSMENT_BASE}/assessments`,
+    assessmentofferings: `${ASSESSMENT_BASE}/assessmentOfferings`
+};
+
+function resolvesFromAssessmentBase(href, targetTable, sourcedId) {
+    const resolved = new URL(`${ASSESSMENT_BASE}${href}`, 'https://oneroster.invalid').pathname;
+    return resolved === `${ENDPOINT_PATHS[targetTable]}/${encodeURIComponent(sourcedId)}`;
+}
+
 // ─── Individual link checkers ─────────────────────────────────────────────────
 
 /**
@@ -185,6 +204,11 @@ async function checkHrefColumn(db, sourceTable, jsonColumn, targetTable, isArray
 
             if (!targetIds.has(linkedId)) {
                 broken.push({ sourceId: row.sourcedId ?? row.sourcedid, href, reason: 'target record not found' });
+                continue;
+            }
+
+            if (OPTIONAL_SOURCES.has(sourceTable) && !resolvesFromAssessmentBase(href, targetTable, linkedId)) {
+                broken.push({ sourceId: row.sourcedId ?? row.sourcedid, href, reason: `does not resolve to ${ENDPOINT_PATHS[targetTable]} from ${ASSESSMENT_BASE}` });
             }
         }
     }
@@ -225,8 +249,9 @@ const HREF_CHECKS = [
     // users — org links are nested inside roles[].org (not a top-level column)
     // Handled separately by checkUsersRolesOrgs() below.
 
-    // assessment rostering (Data Standard 5.2 and later; skipped where the views aren't deployed).
-    // An org link is null when the organization isn't one the orgs view publishes.
+    // assessment registration (Data Standard 5.2 and later; skipped where the views aren't deployed).
+    // An org link is null when the organization isn't one the orgs view publishes. These links must
+    // also resolve from the assessment base path.
     ['assessments',           'org',                'orgs',                false],
     ['assessmentofferings',   'assessment',         'assessments',         false],
     ['assessmentofferings',   'org',                'orgs',                false],

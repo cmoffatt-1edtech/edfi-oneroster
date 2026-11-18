@@ -1,0 +1,25 @@
+meta {
+  name: Withdrawn Enrollments Are Empty
+  type: http
+  seq: 33
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments?filter=registrationStatus%3D'withdrawn'
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("Ed-Fi registrations have no status, so none is withdrawn", function() {
+    expect(res.getBody().assessmentEnrollments).to.deep.equal([]);
+  });
+}

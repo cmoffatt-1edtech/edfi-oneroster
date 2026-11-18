@@ -90,28 +90,34 @@ const configs = {
             'roles', 'userProfiles', 'identifier', 'email', 'sms', 'phone',
             'agentSourceIds', 'grades', 'password', 'metadata']
     },
-    // Assessment rostering (src/config/assessment-rostering.js). Hidden columns the
+    // Assessment registration (src/config/assessment-rostering.js). Hidden columns the
     // authorization filters and sub-collections read are deliberately not selectable.
     assessments: {
         defaultSortField: '',
         allowedFilterFields: ['sourcedId', 'status', 'dateLastModified', 'title', 'identifier',
             'category'],
         selectableFields: ['sourcedId', 'status', 'dateLastModified', 'title', 'identifier',
-            'version', 'category', 'subjects', 'grades', 'org', 'course', 'metadata']
+            'version', 'category', 'subjects', 'grades', 'org', 'course', 'schoolYear', 'metadata']
     },
     assessmentofferings: {
         defaultSortField: '',
-        allowedFilterFields: ['sourcedId', 'status', 'dateLastModified', 'title'],
+        allowedFilterFields: ['sourcedId', 'status', 'dateLastModified', 'title', 'startDate',
+            'endDate'],
         selectableFields: ['sourcedId', 'status', 'dateLastModified', 'title', 'assessment', 'org',
-            'testingWindows', 'class', 'academicSession', 'metadata']
+            'startDate', 'endDate', 'class', 'terms', 'metadata']
     },
     assessmentenrollments: {
         defaultSortField: '',
-        allowedFilterFields: ['sourcedId', 'status', 'dateLastModified', 'role'],
+        allowedFilterFields: ['sourcedId', 'status', 'dateLastModified', 'role',
+            'registrationStatus'],
         selectableFields: ['sourcedId', 'status', 'dateLastModified', 'user', 'assessmentOffering',
-            'school', 'role', 'beginDate', 'endDate', 'metadata']
+            'school', 'class', 'role', 'registrationStatus', 'beginDate', 'endDate', 'metadata']
     }
 };
+
+// What the assessment endpoints can return, by view: the OpenAPI schemas list the same fields
+export const assessmentSelectableFields = Object.freeze(Object.fromEntries(
+    [...ASSESSMENT_ENDPOINT_NAMES].map(endpoint => [endpoint, configs[endpoint].selectableFields])));
 
 // Hidden columns that link a sub-collection's rows to their parent
 const parentColumns = {
@@ -147,7 +153,7 @@ function handleAssessmentRosteringUnavailable(res) {
     return res.status(404).json({
         imsx_codeMajor: 'failure',
         imsx_severity: 'error',
-        imsx_description: 'Assessment rostering is not available for this data store.',
+        imsx_description: 'Assessment registration is not available for this data store.',
         imsx_codeMinor: 'unknownobject'
     });
 }

@@ -27,7 +27,7 @@ tests {
     expect(a.category).to.equal('College entrance exam');
     expect(a.subjects).to.deep.equal(['English', 'English Language Arts', 'Mathematics', 'Reading', 'Science', 'Social Studies', 'Writing']);
     expect(a.grades).to.deep.equal(['Eleventh grade', 'No grade level', 'Tenth grade', 'Twelfth grade']);
-    expect(a).to.not.have.property('org');
+    expect(a).to.not.have.any.keys('org', 'course', 'schoolYear');
     expect(a.metadata.edfi.naturalKey).to.deep.equal({ namespace: 'uri://ed-fi.org/Assessment', assessmentIdentifier: 'ACT-ABW' });
   });
 }

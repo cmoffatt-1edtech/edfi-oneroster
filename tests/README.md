@@ -364,7 +364,10 @@ scratch schema, so the real ones aren't locked. On SQL Server the fixture is loa
 `tests/mssql-fixture-loader.js` and the `oneroster12.sp_refresh_<table>` procedures run inside the
 transaction (`sp_refresh_all` refuses an open transaction), so readers of `oneroster12` wait until
 it ends: run it against a copy of the ODS or data store.
-`--platforms ods` (or `dms`) runs one side. Expected: `9 callers, 341/341 checks met` on each.
+SQL Server has no fixture parity run, so there the same run also checks the fixture's expected values
+for the three assessment tables. `--platforms ods` (or `dms`) runs one side. Expected: `9 callers,
+341/341 checks met` on each PostgreSQL platform, and `362/362 checks met (fixture values 21/21)` on
+each SQL Server one.
 
 ## Development Scripts
 

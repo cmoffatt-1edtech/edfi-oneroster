@@ -25,9 +25,10 @@ CREATE TABLE oneroster12.assessmentofferings (
     title NVARCHAR(256) NOT NULL,
     assessment NVARCHAR(MAX) NOT NULL, -- JSON GUIDRef
     org NVARCHAR(MAX) NULL, -- JSON GUIDRef, only when the org is published
-    testingWindows NVARCHAR(MAX) NOT NULL, -- JSON array, [] when none
-    class NVARCHAR(MAX) NULL, -- always null (open question Q4)
-    academicSession NVARCHAR(MAX) NULL, -- always null (open question Q5)
+    startDate NVARCHAR(32) NULL, -- the earliest begin date of the periods
+    endDate NVARCHAR(32) NULL, -- the latest end date; null when any period is open-ended
+    class NVARCHAR(MAX) NULL, -- always null: Ed-Fi links sections to the assessment
+    terms NVARCHAR(MAX) NOT NULL, -- JSON array, always []: Ed-Fi has no link to a session
     metadata NVARCHAR(MAX) NULL, -- JSON
     assessmentSourcedId NVARCHAR(64) NOT NULL -- sub-collection /assessments/{id}/assessmentOfferings
 );
@@ -71,9 +72,10 @@ BEGIN
             title NVARCHAR(256) NOT NULL,
             assessment NVARCHAR(MAX) NOT NULL,
             org NVARCHAR(MAX) NULL,
-            testingWindows NVARCHAR(MAX) NOT NULL,
+            startDate NVARCHAR(32) NULL,
+            endDate NVARCHAR(32) NULL,
             class NVARCHAR(MAX) NULL,
-            academicSession NVARCHAR(MAX) NULL,
+            terms NVARCHAR(MAX) NOT NULL,
             metadata NVARCHAR(MAX) NULL,
             assessmentSourcedId NVARCHAR(64) NOT NULL
         );
@@ -128,26 +130,27 @@ BEGIN
              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS assessment,
             CASE WHEN assigning_org.EducationOrganizationId IS NOT NULL THEN
                 (SELECT
-                    CONCAT('/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(aa.AssigningEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
+                    CONCAT('/../../rostering/v1p2/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(aa.AssigningEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
                     LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(aa.AssigningEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2)) AS sourcedId,
                     'org' AS type
                  FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
             END AS org,
-            -- One window per Ed-Fi period, never merged; an open-ended window keeps a null end date
-            COALESCE((
-                SELECT
-                    CONVERT(VARCHAR(10), period.BeginDate, 23) AS startDate,
-                    CONVERT(VARCHAR(10), period.EndDate, 23) AS endDate
-                FROM edfi.AssessmentAdministrationPeriod period
-                WHERE period.Namespace = aa.Namespace
-                    AND period.AssessmentIdentifier = aa.AssessmentIdentifier
-                    AND period.AssigningEducationOrganizationId = aa.AssigningEducationOrganizationId
-                    AND period.AdministrationIdentifier = aa.AdministrationIdentifier
-                ORDER BY period.BeginDate, CASE WHEN period.EndDate IS NULL THEN 1 ELSE 0 END, period.EndDate
-                FOR JSON PATH, INCLUDE_NULL_VALUES
-            ), '[]') AS testingWindows,
+            -- The testing window runs from the earliest begin date to the latest end date, and has no
+            -- end when any period is open-ended. Each period is listed in metadata.
+            (SELECT CONVERT(NVARCHAR(32), MIN(period.BeginDate), 23)
+             FROM edfi.AssessmentAdministrationPeriod period
+             WHERE period.Namespace = aa.Namespace
+                 AND period.AssessmentIdentifier = aa.AssessmentIdentifier
+                 AND period.AssigningEducationOrganizationId = aa.AssigningEducationOrganizationId
+                 AND period.AdministrationIdentifier = aa.AdministrationIdentifier) AS startDate,
+            (SELECT CASE WHEN COUNT(*) = COUNT(period.EndDate) THEN CONVERT(NVARCHAR(32), MAX(period.EndDate), 23) END
+             FROM edfi.AssessmentAdministrationPeriod period
+             WHERE period.Namespace = aa.Namespace
+                 AND period.AssessmentIdentifier = aa.AssessmentIdentifier
+                 AND period.AssigningEducationOrganizationId = aa.AssigningEducationOrganizationId
+                 AND period.AdministrationIdentifier = aa.AdministrationIdentifier) AS endDate,
             NULL AS class,
-            NULL AS academicSession,
+            '[]' AS terms,
             (SELECT
                 'assessmentAdministrations' AS [edfi.resource],
                 aa.Namespace AS [edfi.naturalKey.namespace],
@@ -159,7 +162,7 @@ BEGIN
                         p.ParticipatingEducationOrganizationId AS educationOrganizationId,
                         JSON_QUERY(CASE WHEN participating_org.EducationOrganizationId IS NOT NULL THEN
                             (SELECT
-                                CONCAT('/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(p.ParticipatingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
+                                CONCAT('/../../rostering/v1p2/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(p.ParticipatingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
                                 LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(p.ParticipatingEducationOrganizationId AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2)) AS sourcedId,
                                 'org' AS type
                              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
@@ -172,7 +175,19 @@ BEGIN
                         AND p.AdministrationIdentifier = aa.AdministrationIdentifier
                     ORDER BY p.ParticipatingEducationOrganizationId
                     FOR JSON PATH
-                )) AS [edfi.participatingEducationOrganizations]
+                )) AS [edfi.participatingEducationOrganizations],
+                JSON_QUERY((
+                    SELECT
+                        CONVERT(VARCHAR(10), period.BeginDate, 23) AS beginDate,
+                        CONVERT(VARCHAR(10), period.EndDate, 23) AS endDate
+                    FROM edfi.AssessmentAdministrationPeriod period
+                    WHERE period.Namespace = aa.Namespace
+                        AND period.AssessmentIdentifier = aa.AssessmentIdentifier
+                        AND period.AssigningEducationOrganizationId = aa.AssigningEducationOrganizationId
+                        AND period.AdministrationIdentifier = aa.AdministrationIdentifier
+                    ORDER BY period.BeginDate, CASE WHEN period.EndDate IS NULL THEN 1 ELSE 0 END, period.EndDate
+                    FOR JSON PATH
+                )) AS [edfi.testingPeriods]
              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS metadata,
             aa.assessment_sourcedid AS assessmentSourcedId
         FROM keyed aa
@@ -189,11 +204,11 @@ BEGIN
             TRUNCATE TABLE oneroster12.assessmentofferings;
 
             INSERT INTO oneroster12.assessmentofferings
-                (sourcedId, status, dateLastModified, title, assessment, org, testingWindows,
-                 class, academicSession, metadata, assessmentSourcedId)
+                (sourcedId, status, dateLastModified, title, assessment, org, startDate, endDate,
+                 class, terms, metadata, assessmentSourcedId)
             SELECT
-                sourcedId, status, dateLastModified, title, assessment, org, testingWindows,
-                class, academicSession, metadata, assessmentSourcedId
+                sourcedId, status, dateLastModified, title, assessment, org, startDate, endDate,
+                class, terms, metadata, assessmentSourcedId
             FROM #staging_assessmentofferings;
         COMMIT TRANSACTION;
 

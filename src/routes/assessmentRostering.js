@@ -9,9 +9,10 @@ import { authorizeEndpoint } from '../middleware/authorizationHandler.js';
 import { ASSESSMENT_ROSTERING_BASE_PATH as BASE, ASSESSMENT_ENDPOINTS } from '../config/assessment-rostering.js';
 
 /**
- * Assessment rostering routes, mounted ahead of the rostering router under /ims/oneroster when
+ * Assessment registration routes, mounted ahead of the rostering router under /ims/oneroster when
  * ASSESSMENT_ROSTERING_ENABLED is true. There is no catch-all here: an unknown path falls
- * through to the rostering router's 404. Every endpoint takes the rostering scopes.
+ * through to the rostering router's 404. Every endpoint takes the scopes in
+ * ASSESSMENT_ACCEPTED_SCOPES.
  */
 const router = express.Router();
 

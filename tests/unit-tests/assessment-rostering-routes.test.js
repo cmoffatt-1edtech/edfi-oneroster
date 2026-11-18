@@ -15,7 +15,7 @@ jest.unstable_mockModule('../../src/services/database/DatabaseServiceFactory.js'
 
 const { default: assessmentRosteringRoutes } = await import('../../src/routes/assessmentRostering.js');
 const { default: oneRosterRoutes } = await import('../../src/routes/oneRoster.js');
-const { isAssessmentRosteringEnabled, ASSESSMENT_VIEWS, ASSESSMENT_ROSTERING_BASE_PATH } =
+const { isAssessmentRosteringEnabled, ASSESSMENT_VIEWS, ASSESSMENT_ROSTERING_BASE_PATH, ASSESSMENT_ACCEPTED_SCOPES } =
   await import('../../src/config/assessment-rostering.js');
 
 const ROSTER_SCOPE = 'https://purl.imsglobal.org/spec/or/v1p2/scope/roster.readonly';
@@ -58,6 +58,10 @@ describe('assessment rostering configuration', () => {
     expect(isAssessmentRosteringEnabled()).toBe(false);
     process.env.ASSESSMENT_ROSTERING_ENABLED = ' TRUE ';
     expect(isAssessmentRosteringEnabled()).toBe(true);
+  });
+
+  test('is served from the assessment registration base path', () => {
+    expect(BASE).toBe('/ims/oneroster/assessment-registration/v1p0');
   });
 
   test('names four views, all valid refresh names', () => {
@@ -111,6 +115,21 @@ describe('assessment rostering routes', () => {
       expect(config.selectableFields.filter(field => hidden.includes(field))).toEqual([]);
       expect(config.allowedFilterFields.filter(field => hidden.includes(field))).toEqual([]);
     }
+  });
+
+  test('the fields a consumer can select and filter on', async () => {
+    await get(`${BASE}/assessments`);
+    await get(`${BASE}/assessmentOfferings`);
+    await get(`${BASE}/assessmentEnrollments`);
+    const [assessments, offerings, enrollments] = mockQueryMany.mock.calls.map(([, config]) => config);
+
+    expect(assessments.selectableFields).toEqual(expect.arrayContaining(['org', 'course', 'schoolYear']));
+    expect(offerings.selectableFields).toEqual(expect.arrayContaining(['org', 'startDate', 'endDate', 'class', 'terms']));
+    expect(offerings.selectableFields).not.toEqual(expect.arrayContaining(['testingWindows']));
+    expect(offerings.selectableFields).not.toEqual(expect.arrayContaining(['academicSession']));
+    expect(offerings.allowedFilterFields).toEqual(expect.arrayContaining(['startDate', 'endDate']));
+    expect(enrollments.selectableFields).toEqual(expect.arrayContaining(['class', 'registrationStatus']));
+    expect(enrollments.allowedFilterFields).toEqual(expect.arrayContaining(['role', 'registrationStatus']));
   });
 
   describe('sub-collections', () => {
@@ -168,7 +187,7 @@ describe('assessment rostering routes', () => {
         expect(body).toEqual({
           imsx_codeMajor: 'failure',
           imsx_severity: 'error',
-          imsx_description: 'Assessment rostering is not available for this data store.',
+          imsx_description: 'Assessment registration is not available for this data store.',
           imsx_codeMinor: 'unknownobject'
         });
       }
@@ -179,7 +198,7 @@ describe('assessment rostering routes', () => {
       const { status, body } = await get(`${BASE}/assessmentOfferings/x/assessmentEnrollments`);
 
       expect(status).toBe(404);
-      expect(body.imsx_description).toBe('Assessment rostering is not available for this data store.');
+      expect(body.imsx_description).toBe('Assessment registration is not available for this data store.');
     });
 
     // The SQL knex puts in front of the message names the view too, but quoted part by part
@@ -214,6 +233,29 @@ describe('assessment rostering routes', () => {
   });
 
   describe('scopes', () => {
+    test('the accepted scopes are the two rostering scopes, kept in one list', () => {
+      expect(ASSESSMENT_ACCEPTED_SCOPES).toEqual([ROSTER_SCOPE, CORE_SCOPE]);
+      expect(Object.isFrozen(ASSESSMENT_ACCEPTED_SCOPES)).toBe(true);
+    });
+
+    test('each accepted scope is enough on its own, on every endpoint', async () => {
+      for (const scope of ASSESSMENT_ACCEPTED_SCOPES) {
+        for (const path of ['assessments', 'assessmentOfferings', 'assessmentEnrollments', 'assessments/a', 'assessmentOfferings/a/assessmentEnrollments']) {
+          const { status } = await get(`${BASE}/${path}`, { scope });
+          expect([scope, path, status]).toEqual([scope, path, 200]);
+        }
+      }
+    });
+
+    test('the 403 names the accepted scopes', async () => {
+      const { body } = await get(`${BASE}/assessments`, { scope: DEMOGRAPHICS_SCOPE });
+      expect(body).toEqual({
+        imsx_codeMajor: 'failure',
+        imsx_severity: 'error',
+        imsx_description: `Insufficient scope: your token must have the '${ROSTER_SCOPE}' or '${CORE_SCOPE}' scope to access this route.`
+      });
+    });
+
     test('roster-core.readonly is enough', async () => {
       const { status } = await get(`${BASE}/assessmentEnrollments`, { scope: CORE_SCOPE });
       expect(status).toBe(200);

@@ -1,0 +1,27 @@
+meta {
+  name: Registered Enrollments Filter
+  type: http
+  seq: 32
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentEnrollments?filter=registrationStatus%3D'registered'&fields=sourcedId,registrationStatus&limit=100
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("all 40 enrollments are registered", function() {
+    const items = res.getBody().assessmentEnrollments;
+    expect(items).to.have.lengthOf(40);
+    items.forEach(e => expect(e.registrationStatus).to.equal('registered'));
+  });
+}

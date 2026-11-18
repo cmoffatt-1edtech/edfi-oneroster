@@ -1,0 +1,26 @@
+meta {
+  name: Offerings Open On A Date
+  type: http
+  seq: 34
+}
+
+get {
+  url: {{oneRosterUrl}}/{{assessmentPath}}/assessmentOfferings?filter=startDate%3C%3D'2021-12-01'%20AND%20endDate%3E%3D'2021-12-01'
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ar-lea-token}}
+}
+
+tests {
+  test("status is 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("the ACT sitting is open on 2021-12-01", function() {
+    const items = res.getBody().assessmentOfferings;
+    expect(items.map(o => o.sourcedId)).to.deep.equal(['50f7682c5b6ac5078efa3fb97df56acb']);
+  });
+}

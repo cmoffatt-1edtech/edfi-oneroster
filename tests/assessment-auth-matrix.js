@@ -28,7 +28,9 @@
  * the fixture until the rollback, and readers of them wait until then. Point it at a copy of the ODS or
  * data store, not one serving traffic. tests/mssql-fixture-loader.js loads the fixture (foreign keys
  * and triggers off for the tables it writes, negative explicit ids so no identity or sequence moves).
- * Identity values the refresh history uses are not rolled back.
+ * Identity values the refresh history uses are not rolled back. SQL Server has no fixture parity run
+ * (tests/compare-dms-fixture.js is PostgreSQL only), so the fixture's expected values for the three
+ * assessment tables are checked here too, before the callers.
  *
  * Usage:
  *   ODS_PG="host=...;..." DMS_PG="host=...;..." node tests/assessment-auth-matrix.js [--platforms ods]
@@ -46,10 +48,10 @@ import { buildKnexConfig, buildPostgresClientOptions } from '../src/config/db-co
 import OneRosterQueryService from '../src/services/database/OneRosterQueryService.js';
 import AuthorizationQueryService from '../src/services/database/AuthorizationQueryService.js';
 import { ODS_AUTH_OBJECT_MAP, DMS_AUTH_OBJECT_MAP } from '../src/platform/auth-object-map.js';
-import { PLATFORMS, Loader, loadNameMap, readDefinitions, readSequences, changedSequences } from './compare-dms-fixture.js';
+import { PLATFORMS, Loader, loadNameMap, readDefinitions, readSequences, changedSequences, checkExpectations } from './compare-dms-fixture.js';
 import {
   ASSESSMENT_VISIBILITY, ASSESSMENT_FIXTURE_IDS, ASSESSMENT_CLAIM_PAIRS, ASSESSMENT_FULL_ACCESS_VISIBILITY,
-  FIXTURE, toOdsHierarchyRows, toDmsHierarchyRows
+  EXPECTATIONS, EXPECTED_COUNTS, FIXTURE, toOdsHierarchyRows, toDmsHierarchyRows
 } from './dms-parity-fixture.js';
 import { MSSQL_PLATFORMS, MssqlLoader, loadMssqlNameMap, readIdentities, readMssqlSequences } from './mssql-fixture-loader.js';
 import { REFRESH_ORDER } from '../standard/deploy-dms.js';
@@ -237,6 +239,42 @@ async function mssqlFixtureRows(knex) {
   return n;
 }
 
+// Columns whose driver type differs by engine (numbers and timestamps); the PostgreSQL fixture run
+// checks them
+const ENGINE_TYPED_COLUMNS = new Set(['dateLastModified', 'educationOrganizationId', 'definingEducationOrganizationId']);
+
+/** A JSON column is text on SQL Server; parse it as the service does. */
+function parseJsonText(value) {
+  if (typeof value !== 'string') return value;
+  const text = value.trim();
+  if (!((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']')))) return value;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return value;
+  }
+}
+
+/** The fixture's EXPECTATIONS for the three assessment tables, against the refreshed tables. */
+async function checkMssqlFixtureValues(trx, failures, report) {
+  const rowsByView = {};
+  for (const view of VIEWS) {
+    const ids = ASSESSMENT_FIXTURE_IDS[view];
+    const rows = mssqlRows(await trx.raw(
+      `select * from oneroster12.${view} where sourcedId in (${ids.map(() => '?').join(', ')})`, ids
+    ));
+    rowsByView[view] = rows.map(row => Object.fromEntries(Object.entries(row).map(([column, value]) => [column, parseJsonText(value)])));
+  }
+  const expectations = EXPECTATIONS.filter(expectation => VIEWS.includes(expectation.view)).map(expectation => (expectation.absent
+    ? expectation
+    : { ...expectation, values: Object.fromEntries(Object.entries(expectation.values).filter(([column]) => !ENGINE_TYPED_COLUMNS.has(column))) }));
+  const counts = Object.fromEntries(VIEWS.map(view => [view, EXPECTED_COUNTS[view]]));
+  const { checked, failures: failed } = checkExpectations(rowsByView, expectations, counts);
+  report.checks += checked;
+  report.values = `${checked - failed.length}/${checked}`;
+  failures.push(...failed.map(failure => `fixture value: ${failure}`));
+}
+
 async function runMssqlPlatform(platform, connectionString) {
   const config = buildKnexConfig('mssql', parseConnectionString(connectionString, 'mssql'), { pool: { min: 1, max: 1 } });
   config.connection.requestTimeout = 300000;
@@ -282,6 +320,7 @@ async function runMssqlPlatform(platform, connectionString) {
         throw new Error(`refresh: ${notRefreshed.join(', ') || 'no tables refreshed'}`);
       }
 
+      await checkMssqlFixtureValues(trx, failures, report);
       await checkCallers(trx, 'oneroster12', platform, failures, report);
       throw rollback;
     }).catch(error => {
@@ -330,7 +369,8 @@ async function main() {
   for (const platform of engine.platforms.filter(p => args.platforms.includes(p.name))) {
     if (!process.env[platform.env]) throw new Error(`Set ${platform.env}`);
     const { failures, report } = await engine.run(platform, process.env[platform.env]);
-    console.log(`${platform.label}: ${report.callers} callers, ${report.checks - failures.length}/${report.checks} checks met; rolled back`);
+    const values = report.values ? ` (fixture values ${report.values})` : '';
+    console.log(`${platform.label}: ${report.callers} callers, ${report.checks - failures.length}/${report.checks} checks met${values}; rolled back`);
     for (const failure of failures) console.log(`  ${failure}`);
     failed += failures.length;
   }
