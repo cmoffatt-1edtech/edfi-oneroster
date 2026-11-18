@@ -57,12 +57,14 @@ select
     coalesce(subjects.subjects, '[]'::json) as "subjects",
     coalesce(grades.grades, '[]'::json) as "grades",
     case when defining_org.educationorganizationid is not null then json_build_object(
-        'href', concat('/orgs/', md5(a."EducationOrganization_EducationOrganizationId"::text)),
+        'href', concat('/../../rostering/v1p2/orgs/', md5(a."EducationOrganization_EducationOrganizationId"::text)),
         'sourcedId', md5(a."EducationOrganization_EducationOrganizationId"::text),
         'type', 'org'
     ) end as "org",
     -- Ed-Fi has no course link for an assessment
     null::json as "course",
+    -- Ed-Fi assessments have no school year
+    null::json as "schoolYear",
     json_build_object(
         'edfi', json_strip_nulls(json_build_object(
             'resource', 'assessments',

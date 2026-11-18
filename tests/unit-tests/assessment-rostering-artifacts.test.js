@@ -48,50 +48,47 @@ describe.each([
     expect(read(version, set, 'assessments.sql')).toMatch(mssql ? /ORDER BY d\.\[?CodeValue\]? COLLATE Latin1_General_100_BIN2\)/ : /order by d\."?codevalue"? collate "C"\)/i);
   });
 
-  // The ODS/API sets carry the draft model's field names; the DMS sets don't yet
-  if (!set.startsWith('dms')) {
-    test('an offering has one start date and one end date, and its periods in metadata', () => {
-      const offerings = read(version, set, 'assessment_offerings.sql');
+  test('an offering has one start date and one end date, and its periods in metadata', () => {
+    const offerings = read(version, set, 'assessment_offerings.sql');
 
-      expect(offerings).toMatch(mssql ? /\bstartDate NVARCHAR\(32\) NULL/ : /as "startDate",/);
-      expect(offerings).toMatch(mssql ? /\bendDate NVARCHAR\(32\) NULL/ : /as "endDate",/);
-      expect(offerings).toMatch(mssql ? /AS \[edfi\.testingPeriods\]/ : /'testingPeriods', periods\.periods/);
-      expect(offerings).toMatch(mssql ? /\bterms NVARCHAR\(MAX\) NOT NULL/ : /'\[\]'::json as "terms",/);
-      // the end date is empty when any period is open-ended
-      expect(offerings).toMatch(mssql ? /CASE WHEN COUNT\(\*\) = COUNT\(period\.\[?\w+\]?\) THEN/ : /case when bool_and\(p\."?\w+"? is not null\) then max\(/);
-      expect(offerings).not.toMatch(/testingWindows|academicSession/);
-    });
+    expect(offerings).toMatch(mssql ? /\bstartDate NVARCHAR\(32\) NULL/ : /as "startDate",/);
+    expect(offerings).toMatch(mssql ? /\bendDate NVARCHAR\(32\) NULL/ : /as "endDate",/);
+    expect(offerings).toMatch(mssql ? /AS \[edfi\.testingPeriods\]/ : /'testingPeriods', periods\.periods/);
+    expect(offerings).toMatch(mssql ? /\bterms NVARCHAR\(MAX\) NOT NULL/ : /'\[\]'::json as "terms",/);
+    // the end date is empty when any period is open-ended
+    expect(offerings).toMatch(mssql ? /CASE WHEN COUNT\(\*\) = COUNT\(period\.\[?\w+\]?\) THEN/ : /case when bool_and\(p\."?\w+"? is not null\) then max\(/);
+    expect(offerings).not.toMatch(/testingWindows|academicSession/);
+  });
 
-    test('assessments and enrollments carry the other fields of the draft model', () => {
-      const assessments = read(version, set, 'assessments.sql');
-      const enrollments = read(version, set, 'assessment_enrollments.sql');
+  test('assessments and enrollments carry the other fields of the draft model', () => {
+    const assessments = read(version, set, 'assessments.sql');
+    const enrollments = read(version, set, 'assessment_enrollments.sql');
 
-      expect(assessments).toMatch(mssql ? /\bschoolYear NVARCHAR\(MAX\) NULL/ : /null::json as "schoolYear",/);
-      expect(enrollments).toMatch(mssql ? /\bregistrationStatus NVARCHAR\(16\) NOT NULL/ : /'registered' as "registrationStatus",/);
-      expect(enrollments).toMatch(mssql ? /\bclass NVARCHAR\(MAX\) NULL/ : /null::json as "class",/);
-      expect(enrollments).toContain("'registered'");
-    });
+    expect(assessments).toMatch(mssql ? /\bschoolYear NVARCHAR\(MAX\) NULL/ : /null::json as "schoolYear",/);
+    expect(enrollments).toMatch(mssql ? /\bregistrationStatus NVARCHAR\(16\) NOT NULL/ : /'registered' as "registrationStatus",/);
+    expect(enrollments).toMatch(mssql ? /\bclass NVARCHAR\(MAX\) NULL/ : /null::json as "class",/);
+    expect(enrollments).toContain("'registered'");
+  });
 
-    test('links to rostering records are written from the rostering base path', () => {
-      const rostering = mssql ? /CONCAT\('([^']*)\/(orgs|users)\/', / : /concat\('([^']*)\/(orgs|users)\/', /;
-      const prefixes = [...texts.matchAll(new RegExp(rostering, 'g'))].map(match => match[1]);
+  test('links to rostering records are written from the rostering base path', () => {
+    const rostering = mssql ? /CONCAT\('([^']*)\/(orgs|users)\/', / : /concat\('([^']*)\/(orgs|users)\/', /;
+    const prefixes = [...texts.matchAll(new RegExp(rostering, 'g'))].map(match => match[1]);
 
-      // the assessment's org; the offering's org and participating orgs; the enrollment's user, school,
-      // testing org and reporting org
-      expect(prefixes).toHaveLength(7);
-      expect([...new Set(prefixes)]).toEqual(['/../../rostering/v1p2']);
-      expect(texts).toMatch(mssql ? /CONCAT\('\/assessments\/', / : /concat\('\/assessments\/', /);
-      expect(texts).toMatch(mssql ? /CONCAT\('\/assessmentOfferings\/', / : /concat\('\/assessmentOfferings\/', /);
-    });
+    // the assessment's org; the offering's org and participating orgs; the enrollment's user, school,
+    // testing org and reporting org
+    expect(prefixes).toHaveLength(7);
+    expect([...new Set(prefixes)]).toEqual(['/../../rostering/v1p2']);
+    expect(texts).toMatch(mssql ? /CONCAT\('\/assessments\/', / : /concat\('\/assessments\/', /);
+    expect(texts).toMatch(mssql ? /CONCAT\('\/assessmentOfferings\/', / : /concat\('\/assessmentOfferings\/', /);
+  });
 
-    test('no sourcedId formula takes the school: the offering stays one per administration', () => {
-      const offerings = read(version, set, 'assessment_offerings.sql');
-      const idColumn = mssql ? /offering_sourcedid AS sourcedId|aa\.offering_sourcedid,\n\s+'active'/ : /\)\) as "sourcedId", -- unique ID constructed from natural key of Ed-Fi AssessmentAdministrations/;
+  test('no sourcedId formula takes the school: the offering stays one per administration', () => {
+    const offerings = read(version, set, 'assessment_offerings.sql');
+    const idColumn = mssql ? /offering_sourcedid AS sourcedId|aa\.offering_sourcedid,\n\s+'active'/ : /\)\) as "sourcedId", -- unique ID constructed from natural key of Ed-Fi AssessmentAdministrations/;
 
-      expect(offerings).toMatch(idColumn);
-      expect(offerings).not.toMatch(/StudentAssessmentRegistration|studentassessmentregistration/);
-    });
-  }
+    expect(offerings).toMatch(idColumn);
+    expect(offerings).not.toMatch(/StudentAssessmentRegistration|studentassessmentregistration/);
+  });
 
   if (mssql) {
     test('hashes the new sourcedIds as UTF-8, as PostgreSQL does', () => {

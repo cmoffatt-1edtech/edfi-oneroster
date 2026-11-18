@@ -24,7 +24,9 @@ CREATE TABLE oneroster12.assessmentenrollments (
     [user] NVARCHAR(MAX) NOT NULL, -- JSON GUIDRef
     assessmentOffering NVARCHAR(MAX) NOT NULL, -- JSON GUIDRef
     school NVARCHAR(MAX) NOT NULL, -- JSON GUIDRef
+    class NVARCHAR(MAX) NULL, -- always null: an Ed-Fi registration isn't tied to a section
     role NVARCHAR(16) NOT NULL,
+    registrationStatus NVARCHAR(16) NOT NULL, -- always registered: Ed-Fi registrations have no status
     beginDate NVARCHAR(10) NULL, -- always null: Ed-Fi registrations have no dates
     endDate NVARCHAR(10) NULL,
     metadata NVARCHAR(MAX) NULL, -- JSON
@@ -113,19 +115,21 @@ BEGIN
             SELECT [StateEducationAgencyId] FROM edfi.[StateEducationAgency]
         )
         INSERT INTO #staging_assessmentenrollments
-            (sourcedId, status, dateLastModified, [user], assessmentOffering, school, role, beginDate, endDate,
+            (sourcedId, status, dateLastModified, [user], assessmentOffering, school, class, role, registrationStatus, beginDate, endDate,
              metadata, educationOrganizationId, participantDocumentId, assessmentOfferingSourcedId)
         SELECT
             r.enrollment_sourcedid,
             'active',
             r.[ContentLastModifiedAt],
-            (SELECT CONCAT('/users/', r.user_sourcedid) AS href, r.user_sourcedid AS sourcedId, 'user' AS type
+            (SELECT CONCAT('/../../rostering/v1p2/users/', r.user_sourcedid) AS href, r.user_sourcedid AS sourcedId, 'user' AS type
              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
             (SELECT CONCAT('/assessmentOfferings/', r.offering_sourcedid) AS href, r.offering_sourcedid AS sourcedId, 'assessmentOffering' AS type
              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
-            (SELECT CONCAT('/orgs/', r.school_sourcedid) AS href, r.school_sourcedid AS sourcedId, 'org' AS type
+            (SELECT CONCAT('/../../rostering/v1p2/orgs/', r.school_sourcedid) AS href, r.school_sourcedid AS sourcedId, 'org' AS type
              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
+            NULL,
             'student',
+            'registered',
             NULL,
             NULL,
             (SELECT
@@ -143,7 +147,7 @@ BEGIN
                         r.[TestingEducationOrganization_EducationOrganizationId] AS educationOrganizationId,
                         JSON_QUERY(CASE WHEN testing_org.educationOrganizationId IS NOT NULL THEN
                             (SELECT
-                                CONCAT('/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.[TestingEducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
+                                CONCAT('/../../rostering/v1p2/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.[TestingEducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
                                 LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.[TestingEducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2)) AS sourcedId,
                                 'org' AS type
                              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
@@ -155,7 +159,7 @@ BEGIN
                         r.[ReportingEducationOrganization_EducationOrganizationId] AS educationOrganizationId,
                         JSON_QUERY(CASE WHEN reporting_org.educationOrganizationId IS NOT NULL THEN
                             (SELECT
-                                CONCAT('/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.[ReportingEducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
+                                CONCAT('/../../rostering/v1p2/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.[ReportingEducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
                                 LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(r.[ReportingEducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2)) AS sourcedId,
                                 'org' AS type
                              FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)

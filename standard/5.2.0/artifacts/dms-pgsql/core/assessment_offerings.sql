@@ -30,14 +30,17 @@ published_orgs as (
     union
     select "StateEducationAgencyId" from edfi."StateEducationAgency"
 ),
-windows as (
-    -- One window per Ed-Fi period, never merged; an open-ended window keeps a null end date
+periods as (
+    -- The testing window runs from the earliest begin date to the latest end date, and has no end
+    -- when any period is open-ended. Each period is kept for metadata.
     select
         p."AssessmentAdministration_DocumentId" as documentid,
+        min(p."AssessmentAdministrationBeginDate") as startdate,
+        case when bool_and(p."AssessmentAdministrationEndDate" is not null) then max(p."AssessmentAdministrationEndDate") end as enddate,
         json_agg(
-            json_build_object('startDate', to_char(p."AssessmentAdministrationBeginDate", 'YYYY-MM-DD'), 'endDate', to_char(p."AssessmentAdministrationEndDate", 'YYYY-MM-DD'))
+            json_build_object('beginDate', to_char(p."AssessmentAdministrationBeginDate", 'YYYY-MM-DD'), 'endDate', to_char(p."AssessmentAdministrationEndDate", 'YYYY-MM-DD'))
             order by p."AssessmentAdministrationBeginDate", p."AssessmentAdministrationEndDate" nulls last
-        ) as windows
+        ) as periods
     from edfi."AssessmentAdministrationPeriod" p
     group by p."AssessmentAdministration_DocumentId"
 ),
@@ -48,7 +51,7 @@ participation as (
             json_strip_nulls(json_build_object(
                 'educationOrganizationId', p."ParticipatingEducationOrganization_EducationOrganizationId",
                 'org', case when participating_org.educationorganizationid is not null then json_build_object(
-                    'href', concat('/orgs/', md5(p."ParticipatingEducationOrganization_EducationOrganizationId"::text)),
+                    'href', concat('/../../rostering/v1p2/orgs/', md5(p."ParticipatingEducationOrganization_EducationOrganizationId"::text)),
                     'sourcedId', md5(p."ParticipatingEducationOrganization_EducationOrganizationId"::text),
                     'type', 'org'
                 ) end
@@ -77,15 +80,16 @@ select
         'type', 'assessment'
     ) as "assessment",
     case when assigning_org.educationorganizationid is not null then json_build_object(
-        'href', concat('/orgs/', md5(aa."AssigningEducationOrganization_EducationOrganizationId"::text)),
+        'href', concat('/../../rostering/v1p2/orgs/', md5(aa."AssigningEducationOrganization_EducationOrganizationId"::text)),
         'sourcedId', md5(aa."AssigningEducationOrganization_EducationOrganizationId"::text),
         'type', 'org'
     ) end as "org",
-    coalesce(windows.windows, '[]'::json) as "testingWindows",
-    -- Ed-Fi links sections to the assessment, not the administration (open question Q4)
+    to_char(periods.startdate, 'YYYY-MM-DD') as "startDate",
+    to_char(periods.enddate, 'YYYY-MM-DD') as "endDate",
+    -- Ed-Fi links sections to the assessment, not the administration
     null::json as "class",
-    -- Ed-Fi administrations have no academic session (open question Q5)
-    null::json as "academicSession",
+    -- Ed-Fi administrations have no link to a session
+    '[]'::json as "terms",
     json_build_object(
         'edfi', json_strip_nulls(json_build_object(
             'resource', 'assessmentAdministrations',
@@ -95,7 +99,8 @@ select
                 'assigningEducationOrganizationId', aa."AssigningEducationOrganization_EducationOrganizationId",
                 'administrationIdentifier', aa."AdministrationIdentifier"
             ),
-            'participatingEducationOrganizations', participation.organizations
+            'participatingEducationOrganizations', participation.organizations,
+            'testingPeriods', periods.periods
         ))
     ) as metadata,
     -- Sub-collection /assessments/{id}/assessmentOfferings
@@ -103,8 +108,8 @@ select
 from administration aa
     left join published_orgs assigning_org
         on assigning_org.educationorganizationid = aa."AssigningEducationOrganization_EducationOrganizationId"
-    left join windows
-        on windows.documentid = aa."DocumentId"
+    left join periods
+        on periods.documentid = aa."DocumentId"
     left join participation
         on participation.documentid = aa."DocumentId";
 

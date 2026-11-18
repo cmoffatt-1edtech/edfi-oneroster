@@ -28,6 +28,7 @@ CREATE TABLE oneroster12.assessments (
     grades NVARCHAR(MAX) NOT NULL, -- JSON array, [] when none
     org NVARCHAR(MAX) NULL, -- JSON GUIDRef, only when the org is published
     course NVARCHAR(MAX) NULL, -- always null: Ed-Fi has no course link
+    schoolYear NVARCHAR(MAX) NULL, -- always null: Ed-Fi assessments have no school year
     metadata NVARCHAR(MAX) NULL, -- JSON
     definingEducationOrganizationId BIGINT NULL -- for authorization filtering
 );
@@ -81,7 +82,7 @@ BEGIN
         )
         INSERT INTO #staging_assessments
             (sourcedId, status, dateLastModified, title, identifier, version, category,
-             subjects, grades, org, course, metadata, definingEducationOrganizationId)
+             subjects, grades, org, course, schoolYear, metadata, definingEducationOrganizationId)
         SELECT
             LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5',
                 CAST(CONCAT(a.k_namespace, N'|', a.k_assessmentidentifier) COLLATE Latin1_General_100_CI_AS_SC_UTF8 AS VARCHAR(MAX))
@@ -103,11 +104,12 @@ BEGIN
             ), '[]'),
             CASE WHEN defining_org.educationOrganizationId IS NOT NULL THEN
                 (SELECT
-                    CONCAT('/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(a.[EducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
+                    CONCAT('/../../rostering/v1p2/orgs/', LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(a.[EducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2))) AS href,
                     LOWER(CONVERT(VARCHAR(32), HASHBYTES('MD5', CAST(a.[EducationOrganization_EducationOrganizationId] AS VARCHAR(MAX)) COLLATE Latin1_General_BIN), 2)) AS sourcedId,
                     'org' AS type
                  FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
             END,
+            NULL,
             NULL,
             -- FOR JSON leaves out nulls, as json_strip_nulls does on PostgreSQL
             (SELECT

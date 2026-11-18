@@ -481,16 +481,16 @@ puts an offering at one school, and this service still publishes one offering pe
 
 | Area | Where | What |
 | --- | --- | --- |
-| Testing window | `assessment_offerings.sql` in the four ODS/API sets | `startDate` and `endDate` replace `testingWindows`: the earliest begin date and the latest end date of the administration's periods. `endDate` is null when any period is open-ended; both are null with no periods. Each period goes in `metadata.edfi.testingPeriods` as `{beginDate, endDate}`, in the order the old list had; an open-ended period has no `endDate`. Both dates are filterable. |
-| Field names | `assessments.sql`, `assessment_offerings.sql`, `assessment_enrollments.sql` in the four ODS/API sets; `oneRosterController.js`; the OpenAPI fragment | Offering: `terms` (always `[]`) replaces `academicSession`. Assessment: `schoolYear` (null). Enrollment: `registrationStatus` (always `registered`, filterable) and `class` (null). The offering's `org` keeps its name while an offering belongs to the assigning organization. |
+| Testing window | the eight `assessment_offerings.sql` | `startDate` and `endDate` replace `testingWindows`: the earliest begin date and the latest end date of the administration's periods. `endDate` is null when any period is open-ended; both are null with no periods. Each period goes in `metadata.edfi.testingPeriods` as `{beginDate, endDate}`, in the order the old list had; an open-ended period has no `endDate`. Both dates are filterable. |
+| Field names | the eight `assessments.sql`, `assessment_offerings.sql`, `assessment_enrollments.sql`; `oneRosterController.js`; the OpenAPI fragment | Offering: `terms` (always `[]`) replaces `academicSession`. Assessment: `schoolYear` (null). Enrollment: `registrationStatus` (always `registered`, filterable) and `class` (null). The offering's `org` keeps its name while an offering belongs to the assigning organization. |
 | Base path | `src/config/assessment-rostering.js`, the OpenAPI fragment, discovery, the Bruno environments, `compare-api-ods-dms.js`, the env examples | `/ims/oneroster/assessment-registration/v1p0`. The discovery key is `assessmentRegistrationApi`, the OpenAPI tag "Assessment Registration", and the not-available 404 reads "Assessment registration is not available for this data store." The flag, the file names and the constants keep their names. |
-| Links | the same four sets | A link to a user or an org is written from this service's base path: `/../../rostering/v1p2/users/<id>`, `/../../rostering/v1p2/orgs/<id>`. Before, `/users/<id>` appended to the assessment base path answered 404. Links inside the service are unchanged. |
+| Links | the same eight sets | A link to a user or an org is written from this service's base path: `/../../rostering/v1p2/users/<id>`, `/../../rostering/v1p2/orgs/<id>`. Before, `/users/<id>` appended to the assessment base path answered 404. Links inside the service are unchanged. |
 | Scopes | `src/config/assessment-rostering.js`, `authorizationHandler.js` | `ASSESSMENT_ACCEPTED_SCOPES`, read by the scope check for the three endpoints. It holds the two rostering scopes, so nothing changes for a caller; the service's own scopes go there when they are named. |
 | Fixture | `tests/dms-parity-fixture.js` | Sitting O4 has two closed periods (first start `2026-03-15`, last end `2026-04-12`). O1 already had three periods with one open-ended (no end date), O2 and O5 none. Expectations for the new fields and the link form. Fixture rows per view are unchanged. |
 | Auth matrix | `tests/assessment-auth-matrix.js` | On SQL Server the run also checks the fixture's expected values for the three tables (21 checks), since the fixture parity run is PostgreSQL only. The visibility checks are unchanged. |
 | href check | `tests/href-integrity.js` | An assessment link also has to resolve to its target's endpoint from the assessment base path. |
 | Bruno | `tests/bruno/tests-assessment/` | 36 requests, 66 tests: the new fields and links, filters on `registrationStatus`, `startDate` and `endDate`, and `testingWindows` no longer selectable. |
-| Unit tests | `assessment-rostering-routes.test.js`, `assessment-rostering-artifacts.test.js`, `swagger-document.test.js`, the discovery tests | The scope list, the selectable and filterable fields, the OpenAPI schemas against the controller's field lists, and each ODS/API artifact set: one start and end date, the periods in metadata, the link form, and no school in any sourcedId. |
+| Unit tests | `assessment-rostering-routes.test.js`, `assessment-rostering-artifacts.test.js`, `swagger-document.test.js`, the discovery tests | The scope list, the selectable and filterable fields, the OpenAPI schemas against the controller's field lists, and each artifact set: one start and end date, the periods in metadata, the link form, and no school in any sourcedId. |
 
 ### Gates: ODS/API, Data Standard 5.2
 
@@ -529,3 +529,33 @@ ODS was stood up, so these are binding checks, not the 5.2 gates.
 | PostgreSQL | The three views created on the ODS tables' structure (no data) with the same column added, in a throwaway PostgreSQL container. |
 | Not run | A Data Standard 6.1 ODS with its own sample data, the API, Bruno and parity. |
 
+
+### Gates: DMS (Ed-Fi API 8.1.0), Data Standard 5.2
+
+The four DMS sets got the same changes, so the DMS views give the same output as the ODS views.
+
+| Gate | PostgreSQL | SQL Server 2022 |
+| --- | --- | --- |
+| Deploy | `start-dms-services.ps1 -Rebuild -SkipSeed`: 11 views; assessments 24, offerings 1, enrollments 40, helper 3 | A scratch store built from 8.1.0's DS 5.2 SQL Server DDL (676 tables, schema hash `6f7cac14…`), then `deploy-dms.js --db-type mssql --only <the 12 core files>`. Empty apart from the fixture |
+| sourcedIds | Identical to a snapshot taken before the redeploy, in the same order, on all four views | - |
+| Database parity with the ODS | `compare-dms-database.sh`: 0 row/type differences across 11 views | - |
+| Fixture | `compare-dms-fixture.sh`: 0 problems across 11 views; 87/87 expectations on the ODS and on DMS | Fixture values 21/21 (in the matrix run) |
+| Auth matrix | ODS 341/341, DMS 341/341 | 9 callers, 362/362 including the 21 value checks |
+| href check | 17 passed, 1 skipped | - |
+| API parity with the ODS | `compare-api.js ods-vs-dms --assessment-rostering` (ODS side the flag-on branch container): 304 requests, 13 differences, all 13 known, 0 unexplained, every collection in the same order | - |
+| Bruno | Main collection 54 requests, 199/199; `tests-dms` 14 requests, 20/20; `tests-assessment` 36 requests, 66/66 (`assessment-dms.bru`, school 255901001 client) | - |
+| Unit tests | 1,197 pass, 4 skipped; build check passes | |
+
+Not run: a DMS store on SQL Server with Grand Bend data (engine comparison, the recording
+comparison and Bruno). The saved PostgreSQL snapshots and recordings from earlier runs predate
+these changes; save new ones before the next `dms-vs-recording` or `--pg-snapshot` run.
+
+### Data Standard 6.1, DMS
+
+The same edits as the 5.2 files; binding checks only, as for the ODS.
+
+| Check | Result |
+| --- | --- |
+| SQL Server | A scratch store from the 6.1 SQL Server DDL: `deploy-dms.js --db-type mssql` finds Ed-Fi 6.1.0, deploys the four assessment files and runs their refresh procedures without error (no rows). |
+| PostgreSQL | A scratch store from the 6.1 PostgreSQL DDL in a throwaway container: `deploy-dms.js` deploys the four views. |
+| Not run | A Data Standard 6.1 DMS store with data, parity, the API and Bruno. |

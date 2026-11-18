@@ -61,7 +61,7 @@ select
     'active' as "status",
     (r."ContentLastModifiedAt" at time zone 'UTC') as "dateLastModified",
     json_build_object(
-        'href', concat('/users/', r.user_sourcedid),
+        'href', concat('/../../rostering/v1p2/users/', r.user_sourcedid),
         'sourcedId', r.user_sourcedid,
         'type', 'user'
     ) as "user",
@@ -71,11 +71,15 @@ select
         'type', 'assessmentOffering'
     ) as "assessmentOffering",
     json_build_object(
-        'href', concat('/orgs/', md5(r."StudentSchoolAssociation_SchoolId"::text)),
+        'href', concat('/../../rostering/v1p2/orgs/', md5(r."StudentSchoolAssociation_SchoolId"::text)),
         'sourcedId', md5(r."StudentSchoolAssociation_SchoolId"::text),
         'type', 'org'
     ) as "school",
+    -- An Ed-Fi registration isn't tied to a section
+    null::json as "class",
     'student' as "role",
+    -- Ed-Fi registrations have no status: one that exists is registered
+    'registered' as "registrationStatus",
     -- Ed-Fi registrations have no dates
     null::text as "beginDate",
     null::text as "endDate",
@@ -95,7 +99,7 @@ select
             'testingEducationOrganization', case when r."TestingEducationOrganization_EducationOrganizationId" is not null then json_build_object(
                 'educationOrganizationId', r."TestingEducationOrganization_EducationOrganizationId",
                 'org', case when testing_org.educationorganizationid is not null then json_build_object(
-                    'href', concat('/orgs/', md5(r."TestingEducationOrganization_EducationOrganizationId"::text)),
+                    'href', concat('/../../rostering/v1p2/orgs/', md5(r."TestingEducationOrganization_EducationOrganizationId"::text)),
                     'sourcedId', md5(r."TestingEducationOrganization_EducationOrganizationId"::text),
                     'type', 'org'
                 ) end
@@ -103,7 +107,7 @@ select
             'reportingEducationOrganization', case when r."ReportingEducationOrganization_EducationOrganizationId" is not null then json_build_object(
                 'educationOrganizationId', r."ReportingEducationOrganization_EducationOrganizationId",
                 'org', case when reporting_org.educationorganizationid is not null then json_build_object(
-                    'href', concat('/orgs/', md5(r."ReportingEducationOrganization_EducationOrganizationId"::text)),
+                    'href', concat('/../../rostering/v1p2/orgs/', md5(r."ReportingEducationOrganization_EducationOrganizationId"::text)),
                     'sourcedId', md5(r."ReportingEducationOrganization_EducationOrganizationId"::text),
                     'type', 'org'
                 ) end
